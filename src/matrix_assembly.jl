@@ -2,8 +2,16 @@
 # TODO: refactor with multiple dispatch?
 
 function assemble_matrices_comprehension(green_functions, mesh, wavenumber; direct=true)
+    
+
+    if eltype(mesh.vertices)<: ForwardDiff.Dual
+        T = eltype(mesh.vertices)
+    else
+        T = eltype(wavenumber)
+    end
+    
     # Use comprehensions to build S and D matrices
-    S = @inbounds [-1/2τ̅ * Complex(integral(green_functions, element(mesh, i), element(mesh, j), wavenumber)) for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
+    S = @inbounds [-1/2τ̅ * Complex{T}(integral(green_functions, element(mesh, i), element(mesh, j), wavenumber)) for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 
     D = @inbounds [begin
             element_i = element(mesh, i)
@@ -12,10 +20,23 @@ function assemble_matrices_comprehension(green_functions, mesh, wavenumber; dire
             # Select the normal based on direct flag
             n = direct ? normal(element_j) : normal(element_i)
 
-            c = i == j ? Complex(0.5, 0.0) : Complex(0.0, 0.0)
+            c = i == j ? Complex{T}(0.5, 0.0) : Complex{T}(0.0, 0.0)
 
-            c - 1/2τ̅ * Complex(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
+            c - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
         end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
+    # D = @inbounds [begin
+    #     if i == j
+    #         # For the diagonal elements
+    #         Complex{T}(0.5, 0.0)
+    #     else
+    #         element_i = element(mesh, i)
+    #         element_j = element(mesh, j)
+    #         n = direct ? normal(element_j) : normal(element_i)
+            
+    #         # Only compute the integral for off-diagonal elements
+    #         Complex{T}(0.0, 0.0) - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
+    #     end
+    # end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 
     return S, D
 end
@@ -82,11 +103,30 @@ end
 
 
 function solve(D, S, bc; direct::Bool=true)
+
+    # check to see is dual numbers are used
+    is_ad = eltype(real(D))<: ForwardDiff.Dual
+    
+
+    function linsolve(A, b)
+        if is_ad
+            # Use if ForwardDiff is being used
+            return A \ b
+        else
+            # Otherwise, use ImplicitAD version (works with Zygote). 
+            # This gives incorrect gradients if used with Dual inputs, 
+            # but this if statemnt should prevent this from being used 
+            # in that case.
+            return implicit_linear(A, b)
+        end
+    end
+
+
     if direct
-        ϕ = implicit_linear(D,S*bc)
+        ϕ = linsolve(D,S*bc)
     else
         K = D
-        sources = implicit_linear(K,bc)
+        sources = linsolve(K,bc)
         ϕ = S * sources
     end
     return ϕ

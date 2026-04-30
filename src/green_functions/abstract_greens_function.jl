@@ -88,10 +88,22 @@ both_integral_and_integral_gradient(gfs::_Iterable, e1, e2, w; with_respect_to_f
 function with_reduced_coordinates(𝒢, element_1, element_2, wavenumber)
     x  = center(element_1)
     xi = center(element_2)
-    r  = wavenumber * hypot(x[1] - xi[1], x[2] - xi[2])
-    if r == 0.0
-        r = r + 1e-18
+    
+    dis_squared_raw = (x[1] - xi[1])^2 + (x[2] - xi[2])^2
+    purt = 1e-18
+    if dis_squared_raw==0
+        # must perturb before sqrt since sqrt(0) returns NaN dual number derivative
+        dis = sqrt(dis_squared_raw + purt^2) - purt
+    else
+        dis = sqrt(dis_squared_raw)
     end
+    r = wavenumber * dis
+
+    # r  = wavenumber * hypot(x[1] - xi[1], x[2] - xi[2])
+    # if r == 0.0
+    #     r = r + 1e-18
+    # end
+
     z  = wavenumber * (x[3] + xi[3])
     return wavenumber * 𝒢(r, z)
 end
@@ -99,10 +111,22 @@ end
 function with_reduced_coordinates_derivative(d𝒢, element_1, element_2, wavenumber; with_respect_to_first_variable=false)
     x  = center(element_1)
     xi = center(element_2)
-    r  = wavenumber * hypot(x[1] - xi[1], x[2] - xi[2])
-    if r == 0.0
-        r = r + 1e-18
+
+    dis_squared_raw = (x[1] - xi[1])^2 + (x[2] - xi[2])^2
+    purt = 1e-18
+    if dis_squared_raw==0
+        # must perturb before sqrt since sqrt(0) returns NaN dual number derivative
+        dis = sqrt(dis_squared_raw + purt^2) - purt
+    else
+        dis = sqrt(dis_squared_raw)
     end
+    r = wavenumber * dis
+
+    # r  = wavenumber * hypot(x[1] - xi[1], x[2] - xi[2])
+    # if r == 0.0
+    #     r = r + 1e-18
+    # end
+
     z  = wavenumber * (x[3] + xi[3])
     GF, dGF_dr, dGF_dz = d𝒢(r, z)
     if with_respect_to_first_variable

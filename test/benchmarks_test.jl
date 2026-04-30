@@ -16,7 +16,7 @@ k = omega^2 / 9.8
 dof = [0.0,0.0,1.0]
 
 function check_added_mass(ω,mesh,dof;green_functions)
-    added_mass_value = BEM.calculate_radiation_forces(mesh, dof, ω)[1]
+    added_mass_value = MarineHydro.calculate_radiation_forces(mesh, dof, ω)[1]
     return added_mass_value
 end
 

@@ -1,5 +1,6 @@
 ![Test Status](https://github.com/symbiotic-engineering/MarineHydro.jl/actions/workflows/run_tests.yml/badge.svg)
 ![GitHub](https://img.shields.io/github/license/symbiotic-engineering/MDOcean)
+[![DOI](https://zenodo.org/badge/913583350.svg)](https://doi.org/10.5281/zenodo.19859297)
 
 ### Fully Differentiable Boundary Element Solver for Hydrodynamic Sensitivity Analysis of Wave-Structure Interactions
 

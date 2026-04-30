@@ -1,8 +1,10 @@
 using Test
-using Zygote
 using MarineHydro
 using PyCall
 using LinearAlgebra
+using DifferentiationInterface 
+import ForwardDiff 
+import Zygote
 
 
 @testset "Integrate Pressure " begin
@@ -80,4 +82,72 @@ end
         @test typeof(A_w_grad1) == Float64
         @test A_w_grad1 ≈  fd_grad1 atol=1e-6 rtol=1e-6
     end
+end
+
+@testset "Gradient accuracy check with Finite diff [w.r.t omega] for MDOF cylnder" begin
+    
+    # Description of problem
+    omegas = [1.0, 1.5] # frequencies [rad/s]
+    beta = 0 # incident wave angle [rad]
+    t_DOFs = ["Heave"] # translational DOFs
+    r_DOFs = ["Pitch"] # rotational DOFs
+    DOFs = [t_DOFs; r_DOFs] # all DOFs
+
+    # Create Mesh object
+    radius = 1.5  
+    center = (0.0,0.0,0.0) 
+    len = 2.5
+    faces_max_radius = 0.7
+    cpt = pyimport("capytaine")
+    cptmesh = cpt.meshes.predefined.mesh_horizontal_cylinder(
+                radius=radius,
+                center=center, 
+                length=len, 
+                faces_max_radius = faces_max_radius
+                ).keep_immersed_part(inplace=true)
+
+    # Get MarineHydro values
+    mesh = Mesh(cptmesh)
+    rigid_dof_list = DOFs
+    rotation_center = [1.0, 1.0, 0.0] # off set for nonzero off-diagoinal elements
+    floatingbody = FloatingBody(mesh, rigid_dof_list, rotation_center, "Horizontal_Cylinder")
+
+    # Radiation solve functions
+    function A_and_B_vec(w)
+        parameters = (wave_frequencies=w,
+            radiating_dofs=collect(keys(floatingbody.dofs)),
+            influenced_dofs=collect(keys(floatingbody.dofs)))
+        data = compute_hydrodynamic_coefficients(parameters, floatingbody)
+        return vcat(vec(data.added_mass), vec(data.radiation_damping)) 
+    end
+
+    # Incident + diffraction solve function
+    function F_ex_vec(w)
+        parameters = (wave_frequencies=[w],
+            wave_directions=[beta],
+            influenced_dofs=collect(keys(floatingbody.dofs)))
+        data = compute_hydrodynamic_coefficients(parameters, floatingbody)
+        return vcat(real.(vec(data.excitation_force)),imag.(vec(data.excitation_force))) 
+    end
+
+    backend = AutoForwardDiff()
+
+
+
+    for omega in omegas
+        @testset "Verify sensitivity of added mass and damping wrt Omega: $omega" begin
+            A_and_B_FD = FiniteDifferences.central_fdm(5, 1)(A_and_B_vec, omega)
+            A_and_B_AD = derivative(A_and_B_vec, backend, omega)
+            @test A_and_B_AD !== nothing
+            @test typeof(A_and_B_AD) == Vector{Float64}
+            @test A_and_B_AD ≈ A_and_B_FD atol=1e-6 rtol=1e-6
+        end
+        @testset "Verify sensitivity of excitation force wrt Omega: $omega" begin
+            F_ex_FD = FiniteDifferences.central_fdm(5, 1)(F_ex_vec, omega)
+            F_ex_AD = derivative(F_ex_vec, backend, omega)
+            @test F_ex_AD !== nothing
+            @test typeof(F_ex_AD) == Vector{Float64}
+            @test F_ex_AD ≈ F_ex_FD atol=1e-6 rtol=1e-6
+        end
+    end  
 end

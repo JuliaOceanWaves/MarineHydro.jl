@@ -4,11 +4,18 @@ authors = ["KapilKhanal <kk733@cornell.edu>"]
 version = "0.1.0"
 
 [deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+DimensionalData = "0703355e-b756-11e9-17c0-8b28908087d0"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 ImplicitAD = "e7cbb90b-9b31-4eb2-a8c8-45099c074ee1"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LinearSolve = "7ed4a6bd-45f5-4d41-b270-4a48e9bafcae"
+Meshes = "eacbb407-ea5a-433e-ab97-5258b1ca43fa"
 PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
