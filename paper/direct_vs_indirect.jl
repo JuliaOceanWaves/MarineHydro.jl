@@ -58,7 +58,7 @@ for (i, r) in enumerate(radius_range)
 plot(collect(radius_range), indirect_gradients , xlabel="r(radius)", ylabel="∂A_∂r", label="indirect BIE", marker = "*",color = vermillion,linestyle = :dash)
 plot!(collect(radius_range), direct_gradients, xlabel="r(radius)", ylabel="∂A_∂r", label="direct BIE",marker = "*",color = bluishgreen,linestyle = :solid)
 
-savefig("/home/cornell/BEMJulia/MarineHydro.jl/paper/Plots/direct_indirect_ad_added_mass_heave_with_radius.pdf")
+savefig("/15183/MarineHydro.jl/dev/direct_indirect_ad_added_mass_heave_with_radius.pdf")
 
 
 for (i, r) in enumerate(radius_range)
@@ -71,4 +71,4 @@ end
 plot(collect(radius_range), indirect_gradients , xlabel="r(radius)", ylabel="∂B_∂r", label="indirect BIE", marker = "*",color = vermillion,linestyle = :dash)
 plot!(collect(radius_range), direct_gradients, xlabel="r(radius)", ylabel="∂B_∂r", label="direct BIE",marker = "*",color = bluishgreen,linestyle = :solid)
 
-savefig("/home/cornell/BEMJulia/MarineHydro.jl/paper/Plots/direct_indirect_ad_damping_heave_with_radius.pdf")
+savefig("/15183/MarineHydro.jl/dev/direct_indirect_ad_damping_heave_with_radius.pdf")

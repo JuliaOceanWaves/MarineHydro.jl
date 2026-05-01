@@ -102,6 +102,8 @@ function assemble_matrix_wu(mesh, wavenumber; direct=true)
 end
 
 
+
+
 function solve(D, S, bc; direct::Bool=true)
 
     # check to see is dual numbers are used

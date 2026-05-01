@@ -39,7 +39,7 @@ export make_result, problems_from_data, assemble_hydrodynamic_coefficients
 export create_DimStack, compute_hydrodynamic_coefficients, compute_and_label_hydrodynamic_coefficients
 
 include("matrix_assembly.jl")
-export assemble_matrices, assemble_matrix_wu, solve
+export assemble_matrices, assemble_matrix_wu, solve, assemble_matrix_ExactGuevelDelhommeau
 
 include("waves.jl")
 export FroudeKrylovForce, AiryBC, airy_waves_pressure, airy_waves_velocity,airy_waves_potential
