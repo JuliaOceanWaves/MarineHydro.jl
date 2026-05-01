@@ -2,16 +2,27 @@
 
 # Solve single problem (one frequency and one radiating dof or wave direction)
 function solve_problem(problem::LinearPotentialFlowProblem; direct::Bool=true, gf::String="Wu")
-    k = problem.omega^2 / SETTINGS.g
+    bc = compute_bc(problem) # computed based on omega, not encoutered_omega
+
+    k = compute_wavenumber(problem.omega)
+
+
     if gf=="Wu"  
         S, D = assemble_matrices([Rankine(), RankineReflected(), GFWu()], problem.floatingbody.mesh, k; direct)
     elseif gf=="ExactGuevelDelhommeau"
         S, D = assemble_matrices([Rankine(), RankineReflected(), ExactGuevelDelhommeau()], problem.floatingbody.mesh, k; direct)
     end
-    bc = compute_bc(problem)
+
+
     potential = solve(D, S, bc; direct=direct)
+
+
     pressure = 1im * SETTINGS.rho * problem.omega * potential
+
+
     forces = integrate_pressure(problem.floatingbody, problem.influenced_dofs, pressure) # NamedTuple of complex forces, where each element corresponds to a dof 
+    
+    
     result = make_result(problem, forces)
     return result 
 end

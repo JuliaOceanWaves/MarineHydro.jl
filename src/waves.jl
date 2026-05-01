@@ -21,8 +21,8 @@ end
 function integrate_pressure(mesh::Mesh, pressure, dof)
     normal_dof_amp = -sum(transpose(dof) .* mesh.normals, dims=2)
     forces = sum(pressure .* normal_dof_amp .* mesh.areas)
-  return forces
-  end
+    return forces
+end
 
 
   
@@ -69,6 +69,26 @@ end
 
 # New function
 
+function compute_wavenumber(omega::Real)
+    return omega^2 / SETTINGS.g
+end
+
+function compute_encountered_values(omega::Real, beta::Real, forward_speed::Real)
+    k = compute_wavenumber(omega)    
+    if forward_speed==0
+        return omega, k, beta
+    else
+        encountered_omega = omega - k * forward_speed * cos(beta)
+        encountered_wavenumber = compute_wavenumber(encountered_omega)
+        if encountered_omega >= 0
+            encountered_wave_direction = beta
+        else
+            encountered_wave_direction = beta + pi
+        end
+        return encountered_omega, encountered_wavenumber, encountered_wave_direction
+    end
+end
+
 function integrate_pressure(floatingbody::FloatingBody, influenced_dofs::Vector{Symbol}, pressure)
     mesh = floatingbody.mesh
 
@@ -110,7 +130,7 @@ end
 
 ################################ Diffraction and Excitation methods #########################################
 function airy_waves_potential(points, omega, beta=0)
-    wavenumber = omega^2/SETTINGS.g
+    wavenumber = compute_wavenumber(omega)
     x, y, z = points[:, 1], points[:, 2], points[:, 3]
     wbar = x .* cos(beta) .+ y .* sin(beta)
     cih = exp.(wavenumber .* z)
@@ -120,7 +140,7 @@ end
 
 function airy_waves_velocity(points, omega, beta=0, water_depth = Inf)
     """Compute the fluid velocity for Airy waves at a given point (or array of points)."""
-    k = omega^2/SETTINGS.g
+    k = compute_wavenumber(omega)
 
     x, y, z = points[:, 1], points[:, 2], points[:, 3]
 

@@ -10,33 +10,82 @@ struct DiffractionProblem <: LinearPotentialFlowProblem
     floatingbody::FloatingBody
     omega::Real
     beta::Real
+    wavenumber::Real
+    encountered_omega::Real
+    encountered_beta::Real
+    encountered_wavenumber::Real
     forward_speed::Real
     influenced_dofs::Vector{Symbol}
     function DiffractionProblem(floatingbody::FloatingBody,
         omega::Real,
         beta::Real,
+        wavenumber::Real,
+        encountered_omega::Real,
+        encountered_beta::Real,
+        encountered_wavenumber::Real,
         forward_speed::Real,
         influenced_dofs::Vector{Symbol})
         @assert influenced_dofs ⊆ keys(floatingbody.dofs) "the influenced_dofs Symbols must be a key of floatingbody.dof"
-        return new(floatingbody, omega, beta, forward_speed, influenced_dofs)
+        return new(floatingbody, omega, beta, wavenumber, encountered_omega, encountered_beta, encountered_wavenumber, forward_speed, influenced_dofs)
     end
 end
+
+function DiffractionProblem(floatingbody::FloatingBody,
+    omega::Real,
+    beta::Real,
+    wavenumber::Real,
+    forward_speed::Real,
+    influenced_dofs::Vector{Symbol})
+    if forward_speed==0
+        return DiffractionProblem(floatingbody,omega,beta,wavenumber,omega,beta,wavenumber,forward_speed,influenced_dofs)
+    else
+        encountered_omega, encountered_wavenumber, encountered_beta = compute_encountered_values(omega, beta, forward_speed)
+        return DiffractionProblem(floatingbody,omega,beta,wavenumber,encountered_omega,encountered_beta,encountered_wavenumber,forward_speed,influenced_dofs)
+    end
+end
+
 
 # Define RadiationProblem struct as a subtype of LinearPotentialFlowProblem
 struct RadiationProblem <: LinearPotentialFlowProblem
     floatingbody::FloatingBody
     omega::Real
+    beta::Union{Real, Nothing}
+    wavenumber::Real
+    encountered_omega::Real
+    encountered_beta::Union{Real, Nothing}
+    encountered_wavenumber::Real
     forward_speed::Real
     radiating_dof::Symbol
     influenced_dofs::Vector{Symbol}
     function RadiationProblem(floatingbody::FloatingBody,
         omega::Real,
+        beta::Union{Real, Nothing},
+        wavenumber::Real,
+        encountered_omega::Real,
+        encountered_beta::Union{Real, Nothing},
+        encountered_wavenumber::Real,
         forward_speed::Real,
         radiating_dof::Symbol,
         influenced_dofs::Vector{Symbol})
         @assert (radiating_dof in keys(floatingbody.dofs)) "the radiating_dof Symbol must be a key of floatingbody.dof"
         @assert influenced_dofs ⊆ keys(floatingbody.dofs) "the influenced_dofs Symbols must be a key of floatingbody.dof"
-        return new(floatingbody, omega, forward_speed, radiating_dof, influenced_dofs)
+        return new(floatingbody, omega, beta, wavenumber, encountered_omega, encountered_beta, encountered_wavenumber, forward_speed, radiating_dof, influenced_dofs)
+    end
+end
+
+
+function RadiationProblem(floatingbody::FloatingBody,
+    omega::Real,
+    beta::Union{Real, Nothing},
+    wavenumber::Real,
+    forward_speed::Real,
+    radiating_dof::Symbol,
+    influenced_dofs::Vector{Symbol})
+    if forward_speed==0
+        return RadiationProblem(floatingbody, omega, beta, wavenumber, omega, beta, wavenumber, forward_speed, radiating_dof, influenced_dofs)
+    else
+        encountered_omega, encountered_wavenumber, encountered_beta = compute_encountered_values(omega, beta, forward_speed)
+        return RadiationProblem(floatingbody, omega, beta, wavenumber, encountered_omega, encountered_beta, encountered_wavenumber, forward_speed, radiating_dof, influenced_dofs)
     end
 end
 
@@ -89,7 +138,7 @@ function problems_from_data(parameters::NamedTuple, floatingbody::FloatingBody)
 
     # There is at least one diffraction problem to solve
     if :wave_directions in keys(parameters)
-        diffraction_problems = vec([DiffractionProblem(floatingbody, omega, beta, forward_speed, inf_dofs) 
+        diffraction_problems = vec([DiffractionProblem(floatingbody, omega, beta, compute_wavenumber(omega), forward_speed, inf_dofs) 
             for beta in parameters[:wave_directions], 
                 omega in parameters[:wave_frequencies],
                 forward_speed in forward_speeds])
@@ -99,13 +148,24 @@ function problems_from_data(parameters::NamedTuple, floatingbody::FloatingBody)
 
     # There is at least one radiation problem to solve
     if :radiating_dofs in keys(parameters)
-        radiation_problems = vec([RadiationProblem(floatingbody, omega, forward_speed, rad_dof, inf_dofs)  
+
+        if forward_speeds==[0]
+            beta=nothing # wave direction does not matter for radiation problems with zero forward speed
+            radiation_problems = vec([RadiationProblem(floatingbody, omega, beta, compute_wavenumber(omega), forward_speed, rad_dof, inf_dofs)  
             for rad_dof in parameters[:radiating_dofs], 
                 omega in parameters[:wave_frequencies],
                 forward_speed in forward_speeds])
+        else
+            radiation_problems = vec([RadiationProblem(floatingbody, omega, beta, compute_wavenumber(omega), forward_speed, rad_dof, inf_dofs)  
+            for beta in parameters[:wave_directions], # also loop through wave directions
+                rad_dof in parameters[:radiating_dofs], 
+                omega in parameters[:wave_frequencies],
+                forward_speed in forward_speeds])
+        end  
+        
+        
     else
         radiation_problems = LinearPotentialFlowProblem[]
-
     end
 
     return vcat(diffraction_problems, radiation_problems)
@@ -132,8 +192,8 @@ function assemble_hydrodynamic_coefficients(parameters::NamedTuple, floatingbody
         inf_dofs = collect(keys(floatingbody.dofs))
     end
 
-    # Diffraction or incident problem 
-    if :wave_directions in keys(parameters)
+    # At least one diffraction result 
+    if any(r -> r isa DiffractionResult, results)
         betas = parameters.wave_directions
         dif_lookup = Dict(
             (omega = r.problem.omega,
@@ -162,32 +222,57 @@ function assemble_hydrodynamic_coefficients(parameters::NamedTuple, floatingbody
         excitation_force_data = []
     end
 
-    if :radiating_dofs in keys(parameters)
+
+    # At least one radiation result
+    if any(r -> r isa RadiationResult, results)
         rad_dofs = parameters.radiating_dofs
-        rad_lookup = Dict(
-            (radiating_dof = r.problem.radiating_dof,
-            omega = r.problem.omega,
-            forward_speed = r.problem.forward_speed) => r.forces 
-            for r in results if r isa RadiationResult
-        )
-        added_mass_data = [
-            real(rad_lookup[(radiating_dof=radiating_dof,
-            omega=omega,
-            forward_speed=forward_speed)][i]) / omega^2
-            for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds
-        ]
-        radiation_damping_data = [
-            imag(rad_lookup[(radiating_dof=radiating_dof,
-            omega=omega,
-            forward_speed=forward_speed)][i]) / omega
-            for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds
-        ]
+
+        if forward_speeds == [0] # No forward speed, so do not need beta dimension
+            rad_lookup = Dict(
+                (radiating_dof = r.problem.radiating_dof,
+                omega = r.problem.omega,
+                forward_speed = r.problem.forward_speed) => r.forces 
+                for r in results if r isa RadiationResult
+            )
+            added_mass_data = [
+                real(rad_lookup[(radiating_dof=radiating_dof,
+                omega=omega,
+                forward_speed=forward_speed)][i]) / omega^2
+                for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds
+            ]
+            radiation_damping_data = [
+                imag(rad_lookup[(radiating_dof=radiating_dof,
+                omega=omega,
+                forward_speed=forward_speed)][i]) / omega
+                for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds
+            ]
+        else # Non-zero forward speed, so need beta dimension
+            rad_lookup = Dict(
+                (radiating_dof = r.problem.radiating_dof,
+                omega = r.problem.omega,
+                forward_speed = r.problem.forward_speed,
+                beta = r.problem.beta) => r.forces 
+                for r in results if r isa RadiationResult
+            )
+            added_mass_data = [
+                real(rad_lookup[(radiating_dof=radiating_dof,
+                omega=omega,
+                forward_speed=forward_speed,
+                beta=beta)][i]) / omega^2
+                for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds, beta in betas
+            ]
+            radiation_damping_data = [
+                imag(rad_lookup[(radiating_dof=radiating_dof,
+                omega=omega,
+                forward_speed=forward_speed,
+                beta=beta)][i]) / omega
+                for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds, beta in betas
+            ]
+        end
     else
         added_mass_data = []
         radiation_damping_data = []
-    end
-
-    
+    end    
     data = (added_mass=added_mass_data,
     radiation_damping=radiation_damping_data,
     diffraction_force=diffraction_force_data,
@@ -224,10 +309,18 @@ function create_DimStack(data::NamedTuple, parameters::NamedTuple, floatingbody:
     end
      
 
-    radiation_dims = (Dim{:influenced_dofs}(collect(inf_dofs)), 
-        Dim{:radiating_dofs}(collect(rad_dofs)),
-        Dim{:wave_frequencies}(omegas),
-        Dim{:forward_speeds}(forward_speeds))
+    if forward_speeds == [0]
+        radiation_dims = (Dim{:influenced_dofs}(collect(inf_dofs)), 
+            Dim{:radiating_dofs}(collect(rad_dofs)),
+            Dim{:wave_frequencies}(omegas),
+            Dim{:forward_speeds}(forward_speeds))
+    else
+        radiation_dims = (Dim{:influenced_dofs}(collect(inf_dofs)), 
+            Dim{:radiating_dofs}(collect(rad_dofs)),
+            Dim{:wave_frequencies}(omegas),
+            Dim{:forward_speeds}(forward_speeds),
+            Dim{:wave_directions}(betas))
+    end
 
     diffraction_dims = (Dim{:influenced_dofs}(collect(inf_dofs)),
         Dim{:wave_frequencies}(collect(omegas)),

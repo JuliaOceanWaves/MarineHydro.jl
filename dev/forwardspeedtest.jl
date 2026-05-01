@@ -8,10 +8,10 @@ cpt = pyimport("capytaine")
 
 @testset "Hydrodynamic Coefficient Comparison with Capytaine for MDOF Horizontal Cylinder (atol=1e-4 rtol = 1e-1) " begin
     # Description of problem
-    forward_speeds = [0] # forward speed in x direction [m/s]
+    forward_speeds = [0.01] # forward speed in x direction [m/s]
     h = Inf # sea depth [m]
     omegas = 0.5:0.5:2 # frequencies [rad/s]
-    betas = 0.0:pi/4:pi/2 # incident wave angle [rad]
+    betas = [pi/6] # incident wave angle [rad]
     t_DOFs = ["Surge","Sway"] # translational DOFs
     r_DOFs = ["Roll","Pitch"] # rotational DOFs
     DOFs = [t_DOFs; r_DOFs] # all DOFs
@@ -87,20 +87,23 @@ cpt = pyimport("capytaine")
         for omega in omegas
             for influenced_dof in DOFs
                 for radiating_dof in DOFs
+                    beta = betas[1]
                     @testset "Omega: $omega, influenced_dof: $influenced_dof, radiating_dof: $radiating_dof" begin
                         # Test added mass
                         a_cpt = A_cpt.sel(omega=omega, radiating_dof=radiating_dof, influenced_dof=influenced_dof).values[]
                         a_mh = A_mh[influenced_dofs = At(Symbol(influenced_dof)),
                             radiating_dofs = At(Symbol(radiating_dof)),
                             wave_frequencies = At(omega),
-                            forward_speeds = At(forward_speed)]
+                            forward_speeds = At(forward_speed),
+                            wave_directions = At(beta)]
                         @test  a_cpt ≈ a_mh atol=1e-4 rtol = 1e-1
                         # Test radiation damping
                         b_cpt = B_cpt.sel(omega=omega, radiating_dof=radiating_dof, influenced_dof=influenced_dof).values[]
                         b_mh = B_mh[influenced_dofs = At(Symbol(influenced_dof)),
                             radiating_dofs = At(Symbol(radiating_dof)),
                             wave_frequencies = At(omega),
-                            forward_speeds = At(forward_speed)]
+                            forward_speeds = At(forward_speed),
+                            wave_directions = At(beta)]
                         @test  b_cpt ≈ b_mh atol=1e-4 rtol = 1e-1
                     end                          
                 end

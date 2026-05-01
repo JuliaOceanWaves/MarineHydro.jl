@@ -43,7 +43,7 @@ export assemble_matrices, assemble_matrix_wu, solve, assemble_matrix_ExactGuevel
 
 include("waves.jl")
 export FroudeKrylovForce, AiryBC, airy_waves_pressure, airy_waves_velocity,airy_waves_potential
-export radiation_bc, integrate_pressure, compute_bc
+export radiation_bc, integrate_pressure, compute_bc, compute_wavenumber, compute_encountered_values
 export calculate_radiation_forces, DiffractionForce, diffraction_force
 
 include("solve.jl")
