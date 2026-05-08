@@ -204,7 +204,7 @@ function assemble_hydrodynamic_coefficients(parameters::NamedTuple, floatingbody
         inc_lookup = Dict(
             (omega = r.problem.omega,
             beta = r.problem.beta,
-            forward_speed = r.problem.forward_speed) => FroudeKrylovForce(floatingbody,inf_dofs,r.problem.omega,r.problem.beta)
+            forward_speed = r.problem.forward_speed) => FroudeKrylovForce(r.problem,inf_dofs)
             for r in results if r isa DiffractionResult
         )
         diffraction_force_data = [
@@ -231,19 +231,20 @@ function assemble_hydrodynamic_coefficients(parameters::NamedTuple, floatingbody
             rad_lookup = Dict(
                 (radiating_dof = r.problem.radiating_dof,
                 omega = r.problem.omega,
-                forward_speed = r.problem.forward_speed) => r.forces 
+                forward_speed = r.problem.forward_speed) => (map(f -> real(f)/r.problem.omega^2, r.forces), # added mass
+                                                            map(f -> imag(f)/r.problem.omega, r.forces)) # radiation damping
                 for r in results if r isa RadiationResult
             )
             added_mass_data = [
-                real(rad_lookup[(radiating_dof=radiating_dof,
+                rad_lookup[(radiating_dof=radiating_dof,
                 omega=omega,
-                forward_speed=forward_speed)][i]) / omega^2
+                forward_speed=forward_speed)][1][i]
                 for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds
             ]
             radiation_damping_data = [
-                imag(rad_lookup[(radiating_dof=radiating_dof,
+                rad_lookup[(radiating_dof=radiating_dof,
                 omega=omega,
-                forward_speed=forward_speed)][i]) / omega
+                forward_speed=forward_speed)][2][i]
                 for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds
             ]
         else # Non-zero forward speed, so need beta dimension
@@ -251,21 +252,22 @@ function assemble_hydrodynamic_coefficients(parameters::NamedTuple, floatingbody
                 (radiating_dof = r.problem.radiating_dof,
                 omega = r.problem.omega,
                 forward_speed = r.problem.forward_speed,
-                beta = r.problem.beta) => r.forces 
+                beta = r.problem.beta) => (map(f -> real(f)/r.problem.encountered_omega^2, r.forces), # added mass
+                                            map(f -> imag(f)/r.problem.encountered_omega, r.forces)) # radiation damping
                 for r in results if r isa RadiationResult
             )
             added_mass_data = [
-                real(rad_lookup[(radiating_dof=radiating_dof,
+                rad_lookup[(radiating_dof=radiating_dof,
                 omega=omega,
                 forward_speed=forward_speed,
-                beta=beta)][i]) / omega^2
+                beta=beta)][1][i]
                 for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds, beta in betas
             ]
             radiation_damping_data = [
-                imag(rad_lookup[(radiating_dof=radiating_dof,
+                rad_lookup[(radiating_dof=radiating_dof,
                 omega=omega,
                 forward_speed=forward_speed,
-                beta=beta)][i]) / omega
+                beta=beta)][2][i]
                 for i in 1:length(inf_dofs), radiating_dof in rad_dofs, omega in omegas, forward_speed in forward_speeds, beta in betas
             ]
         end

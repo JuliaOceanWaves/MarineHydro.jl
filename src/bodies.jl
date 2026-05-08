@@ -31,8 +31,20 @@ function FloatingBody(mesh::Mesh, rigid_dof_list::Vector{String}, rotation_cente
     return FloatingBody(mesh, dofs, body_name)
 end
 
+# This is only used for forward speed problems, and rigid_dof_name must be a rigid body dof
+function evaluate_gradient_of_motion(mesh::Mesh, rigid_dof_name::String)
+    @assert rigid_dof_name in ("Surge","Sway","Heave","Roll","Pitch","Yaw") "forward speed problems are only developed for rigid body dofs"
+    num_panels = mesh.nfaces
+    ddofdx = zeros(num_panels, 3)
+    if rigid_dof_name=="Pitch"
+        ddofdx[:,3] .= 1
+    elseif rigid_dof_name=="Yaw"
+        ddofdx[:,2] .= -1
+    end
+    return ddofdx
+end
 
-
+        
 
 # rigid_dof_list can contain symbols or strings 
 function FloatingBody(mesh::Mesh, rigid_dof_list::Vector{Symbol}, rotation_center::AbstractVector, body_name::String)

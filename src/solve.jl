@@ -2,26 +2,39 @@
 
 # Solve single problem (one frequency and one radiating dof or wave direction)
 function solve_problem(problem::LinearPotentialFlowProblem; direct::Bool=true, gf::String="Wu")
-    bc = compute_bc(problem) # computed based on omega, not encoutered_omega
 
-    k = compute_wavenumber(problem.omega)
+    bc = compute_bc(problem) 
 
-
-    if gf=="Wu"  
-        S, D = assemble_matrices([Rankine(), RankineReflected(), GFWu()], problem.floatingbody.mesh, k; direct)
-    elseif gf=="ExactGuevelDelhommeau"
-        S, D = assemble_matrices([Rankine(), RankineReflected(), ExactGuevelDelhommeau()], problem.floatingbody.mesh, k; direct)
+    if problem.forward_speed==0
+        omega = problem.omega
+        wavenumber = problem.wavenumber
+    else
+        @assert direct==false "Forward speed problems are only developed with the indirect method"
+        omega = problem.encountered_omega
+        wavenumber = problem.encountered_wavenumber # use encountered_wavenumber in gfs
     end
 
 
-    potential = solve(D, S, bc; direct=direct)
+    if gf=="Wu"  
+        selected_GF = GFWu()
+    elseif gf=="ExactGuevelDelhommeau"
+        selected_GF = ExactGuevelDelhommeau()
+    end
 
+    S, D = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct)
 
-    pressure = 1im * SETTINGS.rho * problem.omega * potential
+    potential, sources = solve(D, S, bc; direct=direct)
 
+    pressure = 1im * SETTINGS.rho * omega * potential # uses encountered_omega
 
-    forces = integrate_pressure(problem.floatingbody, problem.influenced_dofs, pressure) # NamedTuple of complex forces, where each element corresponds to a dof 
-    
+    if problem.forward_speed!=0
+        # change normals to all be unit vector in x direction
+        S, K = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1,0,0])
+        nabla_phi_dot_x = K * sources
+        pressure .+= SETTINGS.rho * problem.forward_speed * nabla_phi_dot_x
+    end
+
+    forces = integrate_pressure(problem.floatingbody, problem.influenced_dofs, pressure) # NamedTuple of complex forces, where each element corresponds to an influenced dof 
     
     result = make_result(problem, forces)
     return result 

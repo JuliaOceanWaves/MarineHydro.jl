@@ -1,7 +1,7 @@
 # Below are several variants of the same function.
 # TODO: refactor with multiple dispatch?
 
-function assemble_matrices_comprehension(green_functions, mesh, wavenumber; direct=true)
+function assemble_matrices_comprehension(green_functions, mesh, wavenumber; direct=true, all_normals=nothing)
     
 
     if eltype(mesh.vertices)<: ForwardDiff.Dual
@@ -9,34 +9,20 @@ function assemble_matrices_comprehension(green_functions, mesh, wavenumber; dire
     else
         T = eltype(wavenumber)
     end
-    
-    # Use comprehensions to build S and D matrices
+
     S = @inbounds [-1/2τ̅ * Complex{T}(integral(green_functions, element(mesh, i), element(mesh, j), wavenumber)) for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 
     D = @inbounds [begin
             element_i = element(mesh, i)
             element_j = element(mesh, j)
 
-            # Select the normal based on direct flag
-            n = direct ? normal(element_j) : normal(element_i)
+            norm_vec = direct ? normal(element_j) : normal(element_i)
+            n = isnothing(all_normals) ? norm_vec : all_normals
 
             c = i == j ? Complex{T}(0.5, 0.0) : Complex{T}(0.0, 0.0)
 
             c - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
         end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
-    # D = @inbounds [begin
-    #     if i == j
-    #         # For the diagonal elements
-    #         Complex{T}(0.5, 0.0)
-    #     else
-    #         element_i = element(mesh, i)
-    #         element_j = element(mesh, j)
-    #         n = direct ? normal(element_j) : normal(element_i)
-            
-    #         # Only compute the integral for off-diagonal elements
-    #         Complex{T}(0.0, 0.0) - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
-    #     end
-    # end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 
     return S, D
 end
@@ -97,8 +83,8 @@ Assembles the influence matrices based on the tuple of provided Green's function
 const assemble_matrices = assemble_matrices_comprehension
 
 
-function assemble_matrix_wu(mesh, wavenumber; direct=true)
-    return assemble_matrices([Rankine(), RankineReflected(), GFWu()], mesh, wavenumber; direct)
+function assemble_matrix_wu(mesh, wavenumber; direct=true, all_normals=nothing)
+    return assemble_matrices([Rankine(), RankineReflected(), GFWu()], mesh, wavenumber; direct, all_normals)
 end
 
 
@@ -126,11 +112,12 @@ function solve(D, S, bc; direct::Bool=true)
 
     if direct
         ϕ = linsolve(D,S*bc)
+        sources = nothing
     else
         K = D
         sources = linsolve(K,bc)
         ϕ = S * sources
     end
-    return ϕ
+    return ϕ, sources
 end
 
