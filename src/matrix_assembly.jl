@@ -17,11 +17,16 @@ function assemble_matrices_comprehension(green_functions, mesh, wavenumber; dire
             element_j = element(mesh, j)
 
             norm_vec = direct ? normal(element_j) : normal(element_i)
+        
             n = isnothing(all_normals) ? norm_vec : all_normals
+                      
 
             c = i == j ? Complex{T}(0.5, 0.0) : Complex{T}(0.0, 0.0)
+            constant = c
 
-            c - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
+            # constant =  isnothing(all_normals) ? c : Complex{T}(0.0, 0.0) # set to zero when prescribing normals (used for correction term in forward speed problems)
+
+            constant - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
         end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 
     return S, D
@@ -88,28 +93,23 @@ function assemble_matrix_wu(mesh, wavenumber; direct=true, all_normals=nothing)
 end
 
 
+function linsolve(A, b)
+    # check to see is dual numbers are used
+    is_ad = eltype(real(A))<: ForwardDiff.Dual
+    if is_ad
+        # Use if ForwardDiff is being used
+        return A \ b
+    else
+        # Otherwise, use ImplicitAD version (works with Zygote). 
+        # This gives incorrect gradients if used with Dual inputs, 
+        # but this if statemnt should prevent this from being used 
+        # in that case.
+        return implicit_linear(A, b)
+    end
+end
 
 
 function solve(D, S, bc; direct::Bool=true)
-
-    # check to see is dual numbers are used
-    is_ad = eltype(real(D))<: ForwardDiff.Dual
-    
-
-    function linsolve(A, b)
-        if is_ad
-            # Use if ForwardDiff is being used
-            return A \ b
-        else
-            # Otherwise, use ImplicitAD version (works with Zygote). 
-            # This gives incorrect gradients if used with Dual inputs, 
-            # but this if statemnt should prevent this from being used 
-            # in that case.
-            return implicit_linear(A, b)
-        end
-    end
-
-
     if direct
         ϕ = linsolve(D,S*bc)
         sources = nothing
