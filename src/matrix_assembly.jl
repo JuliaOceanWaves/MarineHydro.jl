@@ -19,14 +19,12 @@ function assemble_matrices_comprehension(green_functions, mesh, wavenumber; dire
 
             norm_vec = direct ? normal(element_j) : normal(element_i)
         
-            n = isnothing(all_normals) ? norm_vec : all_normals
-                      
+            n = isnothing(all_normals) ? norm_vec : all_normals                      
 
             c = i == j ? Complex{T}(1.0, 0.0) : Complex{T}(0.0, 0.0) # if diagonal
 
-            # constant = abs(mesh.centers[i,3]-free_surface) < 1e-8 ? c : c/2 # if panel on surface
+            constant = abs(mesh.centers[i,3]-free_surface) < 1e-8 ? c : c/2 # if panel on surface
 
-            constant = c/2
             constant - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
         end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 

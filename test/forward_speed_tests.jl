@@ -33,14 +33,14 @@ function MH_compute_pressure(problem; direct::Bool=false, gf::String="Wu")
         if direct
             # change normals to all be unit vector in x direction
             S, D = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1, 0, 0])
-            nabla_phi_dot_x = S \ (D * potential)
+            partial_phi_partial_x = S \ (D * potential)
             K = D
         else
             # change normals to all be unit vector in x direction
             S, K = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1, 0, 0])
-            nabla_phi_dot_x = K * sources
+            partial_phi_partial_x = K * sources
         end
-        pressure .+= SETTINGS.rho * problem.forward_speed * nabla_phi_dot_x
+        pressure .+= SETTINGS.rho * problem.forward_speed * partial_phi_partial_x
     else
         K=D
     end

@@ -30,8 +30,8 @@ function solve_problem(problem::LinearPotentialFlowProblem; direct::Bool=true, g
     if problem.forward_speed!=0
         # change normals to all be unit vector in x direction
         S, K = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1,0,0])
-        nabla_phi_dot_x = K * sources
-        pressure .+= SETTINGS.rho * problem.forward_speed * nabla_phi_dot_x
+        partial_phi_partial_x = K * sources
+        pressure .+= SETTINGS.rho * problem.forward_speed * partial_phi_partial_x
     end
 
     forces = integrate_pressure(problem.floatingbody, problem.influenced_dofs, pressure) # NamedTuple of complex forces, where each element corresponds to an influenced dof 
