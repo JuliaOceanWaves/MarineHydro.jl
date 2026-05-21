@@ -3,6 +3,7 @@
 
 function assemble_matrices_comprehension(green_functions, mesh, wavenumber; direct=true, all_normals=nothing)
     
+    free_surface = 0.0
 
     if eltype(mesh.vertices)<: ForwardDiff.Dual
         T = eltype(mesh.vertices)
@@ -21,11 +22,11 @@ function assemble_matrices_comprehension(green_functions, mesh, wavenumber; dire
             n = isnothing(all_normals) ? norm_vec : all_normals
                       
 
-            c = i == j ? Complex{T}(0.5, 0.0) : Complex{T}(0.0, 0.0)
-            constant = c
+            c = i == j ? Complex{T}(1.0, 0.0) : Complex{T}(0.0, 0.0) # if diagonal
 
-            # constant =  isnothing(all_normals) ? c : Complex{T}(0.0, 0.0) # set to zero when prescribing normals (used for correction term in forward speed problems)
+            # constant = abs(mesh.centers[i,3]-free_surface) < 1e-8 ? c : c/2 # if panel on surface
 
+            constant = c/2
             constant - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
         end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 

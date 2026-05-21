@@ -120,6 +120,7 @@ function with_reduced_coordinates_derivative(d𝒢, element_1, element_2, wavenu
     else
         dis = sqrt(dis_squared_raw)
     end
+
     r = wavenumber * dis
 
     # r  = wavenumber * hypot(x[1] - xi[1], x[2] - xi[2])
