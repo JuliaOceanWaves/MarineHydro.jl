@@ -25,7 +25,8 @@ function assemble_matrices_comprehension(green_functions, mesh, wavenumber; dire
 
             constant = abs(mesh.centers[i,3]-free_surface) < 1e-8 ? c : c/2 # if panel on surface
 
-            constant - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
+            # (n' * norm_vec)=1 when n==panel normal vector. When all_normals is provided (for forward speed problems), this is not always the case.
+            (constant * (n' * norm_vec)) - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
         end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 
     return S, D

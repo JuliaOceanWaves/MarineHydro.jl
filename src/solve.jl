@@ -9,7 +9,6 @@ function solve_problem(problem::LinearPotentialFlowProblem; direct::Bool=true, g
         omega = problem.omega
         wavenumber = problem.wavenumber
     else
-        @assert direct==false "Forward speed problems are only developed with the indirect method"
         omega = problem.encountered_omega
         wavenumber = problem.encountered_wavenumber # use encountered_wavenumber in gfs
     end
@@ -29,8 +28,15 @@ function solve_problem(problem::LinearPotentialFlowProblem; direct::Bool=true, g
 
     if problem.forward_speed!=0
         # change normals to all be unit vector in x direction
-        S, K = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1,0,0])
-        partial_phi_partial_x = K * sources
+        S, D = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1,0,0])
+        if direct
+            error("MarineHydro.jl has yet to be developed for nonzero forward speeds 
+            with the direct method. Try changing direct to false.")
+            # partial_phi_partial_x = S \ (D * potential)
+        else
+            K = D
+            partial_phi_partial_x = K * sources
+        end
         pressure .+= SETTINGS.rho * problem.forward_speed * partial_phi_partial_x
     end
 

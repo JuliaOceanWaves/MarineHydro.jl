@@ -8,4 +8,5 @@ using Test
     include("./matrix_assembly_differentiation.jl")
     include("./consistency_with_analytical_solutions.jl")
     include("./outputs_differentiation.jl")
+    include("./forward_speed_tests.jl")
 end
