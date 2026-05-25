@@ -78,7 +78,7 @@ using LinearAlgebra
             D[i, i] += sum(abs, D[i, :])
         end
         # Compute gradients using Zygote
-        JD, JS, Jbc = Zygote.jacobian((D, S, bc) -> solve(D, S, bc; direct=true), D, S, bc)
+        JD, JS, Jbc = Zygote.jacobian((D, S, bc) -> solve(D, S, bc; direct=true)[1], D, S, bc)
 
         # Check that Jacobian are not `nothing` and have the correct dimensions
         @test size(JD) == (3, 9)  # Jacobian w.r.t. D should have size (output_dim, input_dim_D1 * input_dim_D2) : Zygote flattens input matrix ?
@@ -93,7 +93,7 @@ using LinearAlgebra
 
         # Test indirect mode
         # Compute Jacobians using Zygote
-        JD, JS, Jbc = Zygote.jacobian((D, S, bc) -> solve(D, S, bc; direct=false), D, S, bc)
+        JD, JS, Jbc = Zygote.jacobian((D, S, bc) -> solve(D, S, bc; direct=false)[1], D, S, bc)
 
         # Test Jacobian sizes
         @test size(JD) == (3, 9)  # Jacobian w.r.t. D should have size (output_dim, input_dim_D1 * input_dim_D2) : Zygote flattens input matrix ?
