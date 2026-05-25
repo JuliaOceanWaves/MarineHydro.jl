@@ -32,10 +32,10 @@ function MH_compute_pressure(problem; direct::Bool=false, gf::String="Wu")
     if problem.forward_speed!=0
         if direct
             # change normals to all be unit vector in x direction
-            S, D = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1, 0, 0])
-            # partial_phi_partial_x = solve(S, D, potential; direct=true)            
-            partial_phi_partial_x =  S \ (D * potential)
-            K = D
+            S, K = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=false, all_normals=[1, 0, 0])
+            # partial_phi_partial_x = solve(S, D, potential; direct=true)  
+            sources = S \ potential          
+            partial_phi_partial_x = K * sources
         else
             # change normals to all be unit vector in x direction
             S, K = assemble_matrices([Rankine(), RankineReflected(), selected_GF], problem.floatingbody.mesh, wavenumber; direct=direct, all_normals=[1, 0, 0])
@@ -49,6 +49,9 @@ function MH_compute_pressure(problem; direct::Bool=false, gf::String="Wu")
     return pressure, forces, K, sources, uncorrcted_pressure
 end
 
+direct = false
+gf = "ExactGuevelDelhommeau"
+# gf = "Wu"
 
 @testset "Comparison of Intermediate Values with Capytaine for Forward Speed Problems with a Sphere." begin
 
@@ -82,20 +85,19 @@ end
     rotation_center = collect(cptbody.rotation_center)
     floatingbody = FloatingBody(mesh, rigid_dof_list, rotation_center, "Horizontal_Cylinder")
 
-
-    @testset "Diffraction boundary conditions" begin
-        cpt_dif_prob = cpt.DiffractionProblem(body=cptbody,water_depth=Inf,omega=omega,forward_speed=forward_speed,wave_direction=beta)
-        cpt_dif_bc = cpt_dif_prob.boundary_condition
-        mh_dif_prob = DiffractionProblem(floatingbody, omega, beta, compute_wavenumber(omega), forward_speed, Symbol.(DOFs))
-        mh_dif_bc = compute_bc(mh_dif_prob)
+    cpt_dif_prob = cpt.DiffractionProblem(body=cptbody,water_depth=Inf,omega=omega,forward_speed=forward_speed,wave_direction=beta)
+    cpt_dif_bc = cpt_dif_prob.boundary_condition
+    mh_dif_prob = DiffractionProblem(floatingbody, omega, beta, compute_wavenumber(omega), forward_speed, Symbol.(DOFs))
+    mh_dif_bc = compute_bc(mh_dif_prob)
+    @testset "Diffraction boundary conditions" begin        
         @test cpt_dif_bc ≈ mh_dif_bc atol=1e-4 rtol = 1e-4
     end
 
     # Solve diffraction problem
-    pt_solver = cpt.BEMSolver()
+    cpt_solver = cpt.BEMSolver()
     cpt_dif_result = cpt_solver.solve(problem=cpt_dif_prob,method="indirect")    
     cpt_dif_pressure = cpt_dif_result.pressure
-    mh_dif_pressure, mh_dif_forces, mh_dif_K, mh_dif_sources, mh_uncorrcted_pressure = MH_compute_pressure(mh_dif_prob;direct=false)
+    mh_dif_pressure, mh_dif_forces, mh_dif_K, mh_dif_sources, mh_uncorrcted_pressure = MH_compute_pressure(mh_dif_prob;direct=direct,gf=gf)
 
     @testset "Diffraction sources" begin
         @test cpt_dif_result.sources ≈ mh_dif_sources atol=1e-4 rtol = 1e-4        
@@ -103,6 +105,19 @@ end
 
     @testset "Diffraction pressure" begin
         @test cpt_dif_pressure ≈ mh_dif_pressure atol=1e-1 rtol = 1e-1
+    end
+
+    gf_params = Dict("free_surface" => cpt_dif_result.free_surface, "water_depth" => cpt_dif_result.water_depth, "wavenumber" => cpt_dif_result.encounter_wavenumber)
+    dGF = cpt.Delhommeau()
+    S, cpt_K = dGF.evaluate(cptmesh, cptmesh; free_surface = cpt_dif_result.free_surface, water_depth = cpt_dif_result.water_depth, wavenumber = cpt_dif_result.encounter_wavenumber, early_dot_product=false)
+
+    num_vals = 10
+    for i in 1:num_vals
+        for j in 1:num_vals
+            @testset "$i th row and $j th column of K matrix computed for difraction problem and with all_normals=[1,0,0]" begin
+                @test mh_dif_K[i,j] ≈ cpt_K[i,j,1] atol=1e-3 rtol = 1e-3
+            end
+        end
     end
 
     for rad_dof in DOFs
@@ -114,7 +129,7 @@ end
             @test cpt_rad_bc ≈ mh_rad_bc atol=1e-4 rtol = 1e-4
         end
         @testset "Radaition pressure" begin
-            mh_rad_pressure, mh_rad_forces, mh_rad_K, mh_rad_sources, mh_uncorrcted_pressure = MH_compute_pressure(mh_rad_prob;direct=false)
+            mh_rad_pressure, mh_rad_forces, mh_rad_K, mh_rad_sources, mh_uncorrcted_pressure = MH_compute_pressure(mh_rad_prob;direct=direct,gf=gf)
             cpt_rad_result = cpt_solver.solve(problem=cpt_rad_prob,method="indirect")
             cpt_rad_pressure = cpt_rad_result.pressure
             @test cpt_rad_pressure ≈ mh_rad_pressure atol=1e-1 rtol = 1e-1
@@ -124,19 +139,6 @@ end
             @test cpt_rad_prob.encounter_wavenumber ≈ mh_rad_prob.encountered_wavenumber atol=1e-4 rtol = 1e-4
         end
     end 
-
-    gf_params = Dict("free_surface" => cpt_dif_result.free_surface, "water_depth" => cpt_dif_result.water_depth, "wavenumber" => cpt_dif_result.encounter_wavenumber)
-    dGF = cpt.Delhommeau()
-    S, cpt_K = dGF.evaluate(cptmesh, cptmesh; free_surface = cpt_dif_result.free_surface, water_depth = cpt_dif_result.water_depth, wavenumber = cpt_dif_result.encounter_wavenumber, early_dot_product=false)
-
-    num_vals = 10
-    for i in 1:num_vals
-        for j in 1:num_vals
-            @testset "$i th row and $j th column of K matrix computed for difraction problem and with all_normals=[1,0,0]" begin
-                @test mh_K[i,j] ≈ cpt_K[i,j,1] atol=1e-3 rtol = 1e-3
-            end
-        end
-    end
 end
 
 
@@ -149,14 +151,6 @@ end
     t_DOFs = ["Surge","Sway"] # translational DOFs
     r_DOFs = ["Roll","Pitch"] # rotational DOFs
     DOFs = [t_DOFs; r_DOFs] # all DOFs
-    method = "indirect"
-    if method == "direct"
-        direct = true
-    elseif method == "indirect"
-        direct = false
-    end
-    gf = "ExactGuevelDelhommeau"
-    # gf = "Wu"
    
 
     # Create Mesh object
@@ -188,7 +182,7 @@ end
         "wave_direction" => betas,
         "radiating_dof" => DOFs,
         "forward_speed" => forward_speeds[1]))
-    results = cpt.BEMSolver().fill_dataset(test_matrix, cptbody, method=method)    
+    results = cpt.BEMSolver().fill_dataset(test_matrix, cptbody, method="indirect")    
 
     # Get Capytaine values
     A_cpt = results.added_mass

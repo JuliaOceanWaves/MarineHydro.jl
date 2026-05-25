@@ -33,6 +33,8 @@ function solve_problem(problem::LinearPotentialFlowProblem; direct::Bool=true, g
             error("MarineHydro.jl has yet to be developed for nonzero forward speeds 
             with the direct method. Try changing direct to false.")
             # partial_phi_partial_x = S \ (D * potential)
+            # sources = S \ potential          
+            # partial_phi_partial_x = K * sources
         else
             K = D
             partial_phi_partial_x = K * sources

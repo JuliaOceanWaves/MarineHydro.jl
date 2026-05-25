@@ -1,5 +1,4 @@
 [deps]
-BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DimensionalData = "0703355e-b756-11e9-17c0-8b28908087d0"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"

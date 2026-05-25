@@ -193,11 +193,11 @@ end
                 @testset "Omega: $omega, influenced_dof: $influenced_dof, radiating_dof: $radiating_dof" begin
                     # Test added mass
                     a_cpt = A_cpt.sel(omega=omega, radiating_dof=radiating_dof, influenced_dof=influenced_dof).values[]
-                    a_mh = A_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega)]
+                    a_mh = A_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega), forward_speeds = At(0)]
                     @test  a_cpt ≈ a_mh atol=1e-4 rtol = 1e-1
                     # Test radiation damping
                     b_cpt = B_cpt.sel(omega=omega, radiating_dof=radiating_dof, influenced_dof=influenced_dof).values[]
-                    b_mh = B_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega)]
+                    b_mh = B_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega), forward_speeds = At(0)]
                     @test  b_cpt ≈ b_mh atol=1e-4 rtol = 1e-1
                 end                          
             end
@@ -205,17 +205,17 @@ end
                 @testset "Omega: $omega, influenced_dof: $influenced_dof, beta: $beta" begin
                     # Test FK force
                     f_FK_cpt = F_FK_cpt.sel(omega=omega, influenced_dof=influenced_dof, wave_direction=beta).values[]
-                    f_FK_mh = F_FK_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta)]
+                    f_FK_mh = F_FK_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta), forward_speeds = At(0)]
                     @test real(f_FK_cpt) ≈ real(f_FK_mh) atol=1e-4 rtol = 1e-1
                     @test imag(f_FK_cpt) ≈ imag(f_FK_mh) atol=1e-4 rtol = 1e-1
                     # Test diffraction force
                     f_D_cpt = F_D_cpt.sel(omega=omega, influenced_dof=influenced_dof, wave_direction=beta).values[]
-                    f_D_mh = F_D_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta)]
+                    f_D_mh = F_D_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta), forward_speeds = At(0)]
                     @test real(f_D_cpt) ≈ real(f_D_mh) atol=1e-4 rtol = 1e-1
                     @test imag(f_D_cpt) ≈ imag(f_D_mh) atol=1e-4 rtol = 1e-1
                     # Test excitation force
                     f_ex_cpt = F_ex_cpt.sel(omega=omega, influenced_dof=influenced_dof, wave_direction=beta).values[]
-                    f_ex_mh = F_ex_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta)]
+                    f_ex_mh = F_ex_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta), forward_speeds = At(0)]
                     @test real(f_ex_cpt) ≈ real(f_ex_mh) atol=1e-4 rtol = 1e-1
                     @test imag(f_ex_cpt) ≈ imag(f_ex_mh) atol=1e-4 rtol = 1e-1
                 end 
@@ -326,11 +326,11 @@ end
                 @testset "Omega: $omega, influenced_dof: $influenced_dof, radiating_dof: $radiating_dof" begin
                     # Test added mass
                     a_cpt = A_cpt.sel(omega=omega, radiating_dof=radiating_dof, influenced_dof=influenced_dof).values[]
-                    a_mh = A_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega)]
+                    a_mh = A_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega), forward_speeds = At(0)]
                     @test  a_cpt ≈ a_mh atol=1e-4 rtol = 1e-1
                     # Test radiation damping
                     b_cpt = B_cpt.sel(omega=omega, radiating_dof=radiating_dof, influenced_dof=influenced_dof).values[]
-                    b_mh = B_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega)]
+                    b_mh = B_mh[influenced_dofs = At(Symbol(influenced_dof)),radiating_dofs = At(Symbol(radiating_dof)), wave_frequencies = At(omega), forward_speeds = At(0)]
                     @test  b_cpt ≈ b_mh atol=1e-4 rtol = 1e-1
                 end                          
             end
@@ -338,12 +338,12 @@ end
                 @testset "Omega: $omega, influenced_dof: $influenced_dof, beta: $beta" begin
                     # Test FK force
                     f_FK_cpt = F_FK_cpt.sel(omega=omega, influenced_dof=influenced_dof, wave_direction=beta).values[]
-                    f_FK_mh = F_FK_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta)]
+                    f_FK_mh = F_FK_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta), forward_speeds = At(0)]
                     @test real(f_FK_cpt) ≈ real(f_FK_mh) atol=1e-4 rtol = 1e-1
                     @test imag(f_FK_cpt) ≈ imag(f_FK_mh) atol=1e-4 rtol = 1e-1
                     # Test diffraction force
                     f_D_cpt = F_D_cpt.sel(omega=omega, influenced_dof=influenced_dof, wave_direction=beta).values[]
-                    f_D_mh = F_D_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta)]
+                    f_D_mh = F_D_mh[influenced_dofs = At(Symbol(influenced_dof)), wave_frequencies = At(omega), wave_directions = At(beta), forward_speeds = At(0)]
                     @test real(f_D_cpt) ≈ real(f_D_mh) atol=1e-4 rtol = 1e-1
                     @test imag(f_D_cpt) ≈ imag(f_D_mh) atol=1e-4 rtol = 1e-1
                 end 

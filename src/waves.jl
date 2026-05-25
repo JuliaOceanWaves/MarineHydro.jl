@@ -29,7 +29,7 @@ function calculate_radiation_forces(mesh::Mesh, dof, omega)
     k = omega^2 / SETTINGS.g
     S, D = assemble_matrix_wu(mesh, k)
     bc = radiation_bc(mesh, dof, omega)
-    potential = solve(D, S, bc)
+    potential, sources = solve(D, S, bc)
     pressure = 1im * SETTINGS.rho * omega * potential
     forces = integrate_pressure(mesh, pressure, dof)
     return [real(forces)/omega^2, imag(forces)/omega]
@@ -45,7 +45,7 @@ function DiffractionForce(mesh::Mesh,ω,dof)
     k = ω^2 / SETTINGS.g
     S, D = assemble_matrices(green_functions, mesh, k)
     bc = AiryBC(mesh, ω)
-    potential = solve(D, S, bc)
+    potential, sources = solve(D, S, bc)
     forces = diffraction_force(potential,mesh, ω,dof)
     return forces
 end
