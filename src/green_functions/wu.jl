@@ -2,14 +2,47 @@ using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 
 struct GFWu <: GreensFunction end
 
-function greens(::GFWu, element_1, element_2, wavenumber)
-    with_reduced_coordinates(element_1, element_2, wavenumber) do hh, vv
-        dd = sqrt(hh * hh + vv * vv)
-        alpha = -vv / dd
-        beta = hh / dd
-        rho = dd / (1.0 + dd)
-        return -GF_Func_L0(vv, dd, alpha, beta, rho) - GF_Func_W(hh, vv)
+# Scalar wave term (Liang–Wu–Noblesse). Named functions so broadcast / AD
+# see a stable type instead of a per-pair `do` closure.
+@inline function _wu_reduced_hh_vv(x, xi, wavenumber)
+    dis_squared_raw = (x[1] - xi[1])^2 + (x[2] - xi[2])^2
+    purt = oftype(dis_squared_raw, 1e-18)
+    if dis_squared_raw == 0
+        dis = sqrt(dis_squared_raw + purt^2) - purt
+    else
+        dis = sqrt(dis_squared_raw)
     end
+    hh = wavenumber * dis
+    vv = wavenumber * (x[3] + xi[3])
+    return hh, vv
+end
+
+@inline function _wu_wave_term(hh, vv)
+    dd = sqrt(hh * hh + vv * vv)
+    alpha = -vv / dd
+    beta = hh / dd
+    rho = dd / (1 + dd)
+    return -GF_Func_L0(vv, dd, alpha, beta, rho) - GF_Func_W(hh, vv)
+end
+
+@inline function _wu_wave_term_and_derivs(hh, vv)
+    dd = sqrt(hh * hh + vv * vv)
+    alpha = -vv / dd
+    beta = hh / dd
+    rho = dd / (1 + dd)
+    GF = -GF_Func_L0(vv, dd, alpha, beta, rho) - GF_Func_W(hh, vv)
+    dGF_dhh = -GF_Func_Ls(hh, vv, dd, alpha, beta, rho) - GF_Func_Wh(hh, vv)
+    dGF_dvv = GF + 2 / dd
+    return GF, dGF_dhh, dGF_dvv
+end
+
+@inline function _wu_greens(x, xi, wavenumber)
+    hh, vv = _wu_reduced_hh_vv(x, xi, wavenumber)
+    return wavenumber * _wu_wave_term(hh, vv)
+end
+
+function greens(::GFWu, element_1, element_2, wavenumber)
+    _wu_greens(center(element_1), center(element_2), wavenumber)
 end
 
 function gradient_greens(gf::GFWu, element_1, element_2, wavenumber; with_respect_to_first_variable=false)
@@ -17,38 +50,85 @@ function gradient_greens(gf::GFWu, element_1, element_2, wavenumber; with_respec
 end
 
 function both_greens_and_gradient_greens(g::GFWu, element_1, element_2, wavenumber; with_respect_to_first_variable=false)
-    with_reduced_coordinates_derivative(element_1, element_2, wavenumber; with_respect_to_first_variable) do hh, vv
-        dd = sqrt(hh * hh + vv * vv)
-        alpha = -vv / dd
-        beta = hh / dd
-        rho = dd / (1.0 + dd)
-        dGF_dhh = -GF_Func_Ls(hh, vv, dd, alpha, beta, rho) - GF_Func_Wh(hh, vv)
-        GF = -GF_Func_L0(vv, dd, alpha, beta, rho) - GF_Func_W(hh, vv)
-        dGF_dvv = GF + 2/dd
-        return GF, dGF_dhh, dGF_dvv
+    x = center(element_1)
+    xi = center(element_2)
+    hh, vv = _wu_reduced_hh_vv(x, xi, wavenumber)
+    GF, dGF_dhh, dGF_dvv = _wu_wave_term_and_derivs(hh, vv)
+    k = wavenumber
+    if with_respect_to_first_variable
+        if abs(hh) > 1e-6
+            dr_dx1 = k^2 / hh * (x[1] - xi[1])
+            dr_dx2 = k^2 / hh * (x[2] - xi[2])
+        else
+            dr_dx1 = zero(x[1])
+            dr_dx2 = zero(x[2])
+        end
+        return k * GF, k * (zero(x) .+ (dr_dx1 * dGF_dhh, dr_dx2 * dGF_dhh, k * dGF_dvv))
+    else
+        if abs(hh) > 1e-6
+            dr_dxi1 = k^2 / hh * (xi[1] - x[1])
+            dr_dxi2 = k^2 / hh * (xi[2] - x[2])
+        else
+            dr_dxi1 = zero(x[1])
+            dr_dxi2 = zero(x[2])
+        end
+        return k * GF, k * (zero(x) .+ (dr_dxi1 * dGF_dhh, dr_dxi2 * dGF_dhh, k * dGF_dvv))
     end
 end
 
-
-function integral(g::GFWu, element_1, element_2, wavenumber)
-    # One-point approximation of the integral
-    return greens(g::GFWu, element_1, element_2, wavenumber) * area(element_2)
+@inline function integral(::GFWu, element_1, element_2, wavenumber)
+    _wu_greens(center(element_1), center(element_2), wavenumber) * area(element_2)
 end
 
-function integral_gradient(g::GFWu, element_1, element_2, wavenumber; with_respect_to_first_variable=false)
-    # One-point approximation of the integral
-    return gradient_greens(g::GFWu, element_1, element_2, wavenumber; with_respect_to_first_variable) * area(element_2)
+@inline function integral_gradient(g::GFWu, element_1, element_2, wavenumber; with_respect_to_first_variable=false)
+    gradient_greens(g, element_1, element_2, wavenumber; with_respect_to_first_variable) * area(element_2)
 end
 
 function both_integral_and_integral_gradient(g::GFWu, element_1, element_2, wavenumber; with_respect_to_first_variable=false)
-    # One-point approximation of the integral
-    GF, dGF = both_greens_and_gradient_greens(g::GFWu, element_1, element_2, wavenumber; with_respect_to_first_variable)
-    return GF * area(element_2), dGF * area(element_2)
+    GF, dGF = both_greens_and_gradient_greens(g, element_1, element_2, wavenumber; with_respect_to_first_variable)
+    a = area(element_2)
+    return GF * a, dGF * a
+end
+
+@inline _wu_integral_centers(c1, c2, area2, k) = _wu_greens(c1, c2, k) * area2
+
+# One Bessel/Struve evaluation per pair; S and D share `_wu_wave_term_and_derivs`.
+# `direct` is a compile-time Val so the kernel does not carry a Bool branch.
+@inline _wu_ndot_gradient_centers(c1, c2, n, area2, k, direct::Bool) =
+    _wu_ndot_gradient_centers(c1, c2, n, area2, k, Val(direct))
+
+@inline function _wu_ndot_gradient_centers(c1, c2, n, area2, k, ::Val{direct}) where {direct}
+    _wu_sd_centers(c1, c2, n, area2, k, Val(direct))[2]
+end
+
+@inline function _wu_sd_centers(c1, c2, n, area2, k, ::Val{true})
+    _wu_sd(c1, c2, n, area2, k, c2[1] - c1[1], c2[2] - c1[2])
+end
+
+@inline function _wu_sd_centers(c1, c2, n, area2, k, ::Val{false})
+    _wu_sd(c1, c2, n, area2, k, c1[1] - c2[1], c1[2] - c2[2])
+end
+
+@inline function _wu_sd(x, xi, n, area2, k, dx1, dx2)
+    hh, vv = _wu_reduced_hh_vv(x, xi, k)
+    GF, dGF_dhh, dGF_dvv = _wu_wave_term_and_derivs(hh, vv)
+    if abs(hh) > 1e-6
+        dr1 = k^2 / hh * dx1
+        dr2 = k^2 / hh * dx2
+    else
+        z = zero(hh)
+        dr1 = z
+        dr2 = z
+    end
+    g = k * (zero(x) .+ (dr1 * dGF_dhh, dr2 * dGF_dhh, k * dGF_dvv))
+    s = (k * GF) * area2
+    d = (n' * g) * area2
+    return s, d
 end
 
 ######################################################
 
-function GF_dFuncC(tt)
+@inline function GF_dFuncC(tt)
      C0 = 14.19
      C1 = -148.24
      C2 = 847.8
@@ -66,7 +146,7 @@ function GF_dFuncC(tt)
 end
 
 
-function GF_dFuncB(tt)
+@inline function GF_dFuncB(tt)
     B0 = 1.11
     B1 = 2.894
     B2 = -76.765
@@ -91,7 +171,7 @@ function GF_dFuncB(tt)
     return GF_dFuncB
 end
 
-function GF_dFuncA(tt)
+@inline function GF_dFuncA(tt)
     A0 = 2.948
     A1 = -24.53
     A2 = 249.69
@@ -117,18 +197,14 @@ function GF_dFuncA(tt)
 end
 
 #import Pkg; Pkg.add("SpecialFunctions")
-using SpecialFunctions
 
-function GF_Func_Wh(hh, vv)
+@inline function GF_Func_Wh(hh, vv)
     H1 = StruveH1(hh)
-    J1 = besselj(1, hh)
-
-    GF_Func_Wh = 2.0 * pi * (2.0 / pi - H1 + im * J1) * exp(vv)
-
-    return GF_Func_Wh
+    J1 = besselj1(hh)
+    return 2 * pi * (2 / pi - H1 + im * J1) * exp(vv)
 end
 
-function GF_Func_Lsp(hh, vv, dd, alpha, beta, rho)
+@inline function GF_Func_Lsp(hh, vv, dd, alpha, beta, rho)
     A = GF_dFuncA(rho)
     B = GF_dFuncB(rho)
     C = GF_dFuncC(rho)
@@ -142,7 +218,7 @@ function GF_Func_Lsp(hh, vv, dd, alpha, beta, rho)
     return GF_Func_Lsp
 end
 
-function GF_Func_Ls(hh, vv, dd, alpha, beta, rho)
+@inline function GF_Func_Ls(hh, vv, dd, alpha, beta, rho)
     PS = (beta + hh) / (dd - vv)
     PS = PS - 2.0 * beta + 2.0 * exp(vv) * dd - hh
 
@@ -156,7 +232,7 @@ function GF_Func_Ls(hh, vv, dd, alpha, beta, rho)
     return GF_Func_Ls
 end
 
-function GF_FuncD(tt)
+@inline function GF_FuncD(tt)
     D0 = 0.632
     D1 = -40.97
     D2 = 667.16
@@ -181,7 +257,7 @@ function GF_FuncD(tt)
     return GF_FuncD
 end
 
-function GF_FuncC(tt)
+@inline function GF_FuncC(tt)
     C0 = 1.268
     C1 = -9.747
     C2 = 209.653
@@ -202,7 +278,7 @@ function GF_FuncC(tt)
     return GF_FuncC
 end
 
-function GF_FuncB(tt)
+@inline function GF_FuncB(tt)
     B0 = 0.938
     B1 = 5.737
     B2 = -67.92
@@ -227,7 +303,7 @@ function GF_FuncB(tt)
     return GF_FuncB
 end
 
-function GF_FuncA(tt)
+@inline function GF_FuncA(tt)
     A0 = 1.21
     A1 = -13.328
     A2 = 215.896
@@ -254,16 +330,13 @@ end
 
 
 
-function GF_Func_W(hh, vv)
+@inline function GF_Func_W(hh, vv)
     H0 = StruveH0(hh)
-    J0 = besselj(0, hh)
-
-    GF_Func_W = 2.0 * pi * (H0 - im * J0) * exp(vv)
-
-    return GF_Func_W
+    J0 = besselj0(hh)
+    return 2 * pi * complex(H0, -J0) * exp(vv)
 end
 
-function GF_Func_Lp( alpha, beta, rho)
+@inline function GF_Func_Lp(alpha, beta, rho)
     A = GF_FuncA(rho)
     B = GF_FuncB(rho)
     C = GF_FuncC(rho)
@@ -279,7 +352,7 @@ function GF_Func_Lp( alpha, beta, rho)
     return  GF_Func_Lp
 end
 
-function GF_Func_L0(vv, dd, alpha, beta, rho)
+@inline function GF_Func_L0(vv, dd, alpha, beta, rho)
     gama = 0.5772156649
     PP = log(0.5 * (dd - vv)) + gama - 2.0 * dd^2
     PP = exp(vv) * PP
@@ -292,7 +365,7 @@ function GF_Func_L0(vv, dd, alpha, beta, rho)
     return   GF_Func_L0
 end
 
-function StruveH0(xx)
+@inline function StruveH0(xx)
     if xx <= 3.0
         yy = (xx / 3.0)^2
         
@@ -328,7 +401,7 @@ end
 
 
 
-function StruveH1(xx)
+@inline function StruveH1(xx)
     if xx <= 3.0
         yy = (xx / 3.0)^2
         
@@ -355,7 +428,7 @@ function StruveH1(xx)
         c1 = 2.0 * (a0 + (a1 + (a2 + a3 * yy) * yy) * yy)
         c2 = pi * (1.0 + (b1 + (b2 + b3 * yy) * yy) * yy)
 
-        StruveH1 = c1 / c2 + bessely(1, xx)
+        StruveH1 = c1 / c2 + bessely1(xx)
     end
     
     return StruveH1

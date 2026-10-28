@@ -6,6 +6,13 @@ using Test
 using DimensionalData
 cpt = pyimport("capytaine")
 
+const FS_HAS_ENZYME = try
+    using Enzyme
+    true
+catch
+    false
+end
+
 function MH_compute_pressure(problem; direct::Bool=false, gf::String="Wu")
     bc = compute_bc(problem) 
 
@@ -79,8 +86,10 @@ gf = "ExactGuevelDelhommeau"
     cptbody.active_dofs = DOFs
     cptbody.name = "Horizontal Cylinder"
 
-    # Create MarineHydro FloatingBody object
-    mesh = Mesh(cptmesh)
+    # Create MarineHydro FloatingBody object. StaticArraysMesh selects the
+    # vectorized (mutating, Enzyme/ForwardDiff-safe) assembly kernels, which are
+    # much leaner than the dense-Mesh comprehension path kept for Zygote.
+    mesh = StaticArraysMesh(Mesh(cptmesh))
     rigid_dof_list = DOFs
     rotation_center = collect(cptbody.rotation_center)
     floatingbody = FloatingBody(mesh, rigid_dof_list, rotation_center, "Horizontal_Cylinder")
@@ -191,8 +200,8 @@ end
     F_D_cpt = results.diffraction_force
     F_ex_cpt = results.excitation_force
 
-    # Get MarineHydro values
-    mesh = Mesh(cptmesh)
+    # Get MarineHydro values (StaticArraysMesh → vectorized assembly kernels)
+    mesh = StaticArraysMesh(Mesh(cptmesh))
     rigid_dof_list = DOFs
     rotation_center = collect(cptbody.rotation_center)
     floatingbody = FloatingBody(mesh, rigid_dof_list, rotation_center, "Horizontal_Cylinder")
@@ -265,5 +274,32 @@ end
                 end           
             end        
         end
+    end
+end
+
+@testset "Forward-speed differentiability on StaticArraysMesh (ForwardDiff / Enzyme)" begin
+    cptmesh_fs = cpt.mesh_sphere(name="sphere", radius=1.0, center=(0, 0, 0), resolution=(6, 6))
+    cptmesh_fs.keep_immersed_part(inplace=true)
+    fs_body = FloatingBody(StaticArraysMesh(Mesh(cptmesh_fs)), ["Surge"], [0.0, 0.0, 0.0], "sphere")
+    fs_formulation = IndirectBEM()
+
+    function fs_added_mass(ω, body)
+        prob = RadiationProblem(body, ω, 2.0, compute_wavenumber(ω), 0.2, :Surge, [:Surge])
+        return added_mass(solve(prob, fs_formulation)).Surge
+    end
+
+    ω0 = 1.0
+    h = 1e-5
+    fd = (fs_added_mass(ω0 + h, fs_body) - fs_added_mass(ω0 - h, fs_body)) / (2h)
+    fwd = ForwardDiff.derivative(w -> fs_added_mass(w, fs_body), ω0)
+    @test isfinite(fwd)
+    @test fwd ≈ fd rtol=1e-3 atol=1e-6
+
+    if FS_HAS_ENZYME
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+        ez = first(Enzyme.gradient(mode, fs_added_mass, ω0, Enzyme.Const(fs_body)))
+        @test ez ≈ fwd rtol=1e-5 atol=1e-8
+    else
+        @test_skip "Enzyme not installed"
     end
 end

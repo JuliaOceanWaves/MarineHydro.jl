@@ -117,17 +117,16 @@ end
         parameters = (wave_frequencies=w,
             radiating_dofs=collect(keys(floatingbody.dofs)),
             influenced_dofs=collect(keys(floatingbody.dofs)))
-        data = compute_hydrodynamic_coefficients(parameters, floatingbody)
-        return vcat(vec(data.added_mass), vec(data.radiation_damping)) 
+        data = hydrodynamic_coefficients(floatingbody, parameters, DirectBEM())
+        return vcat(vec(data.added_mass), vec(data.radiation_damping))
     end
 
-    # Incident + diffraction solve function
     function F_ex_vec(w)
         parameters = (wave_frequencies=[w],
             wave_directions=[beta],
             influenced_dofs=collect(keys(floatingbody.dofs)))
-        data = compute_hydrodynamic_coefficients(parameters, floatingbody)
-        return vcat(real.(vec(data.excitation_force)),imag.(vec(data.excitation_force))) 
+        data = hydrodynamic_coefficients(floatingbody, parameters, DirectBEM())
+        return vcat(real.(vec(data.excitation_force)),imag.(vec(data.excitation_force)))
     end
 
     backend = AutoForwardDiff()

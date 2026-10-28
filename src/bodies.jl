@@ -2,23 +2,33 @@
 using LinearAlgebra: cross, dot, norm
 import Base: +
 
-struct FloatingBody
-    mesh::Mesh
-    lid_mesh::Union{Mesh, Nothing}
-    dofs::NamedTuple 
+# Mesh type is a parameter: `Mesh` (Zygote / dense) or `StaticArraysMesh`
+# (Enzyme / ForwardDiff). Lid type is `Nothing` or the same mesh kind.
+# `D` is the concrete NamedTuple type of `dofs` (Enzyme cannot reverse an
+# abstract `NamedTuple` field nested in `RadiationProblem`).
+struct FloatingBody{M, L, D}
+    mesh::M
+    lid_mesh::L
+    dofs::D
     body_name::String
-
-    function FloatingBody(mesh::Mesh, lid_mesh::Union{Mesh, Nothing}, dofs::NamedTuple, body_name::String)
-        return new(mesh, lid_mesh, dofs, body_name)
-    end
 end
 
-function FloatingBody(mesh::Mesh, dofs::NamedTuple, body_name::String)
+function FloatingBody(mesh, dofs::NamedTuple, body_name::String)
+    return FloatingBody(mesh, nothing, dofs, body_name)
+end
+
+function FloatingBody(mesh::StaticArraysMesh, lid_mesh, dofs::NamedTuple, body_name::String)
+    sm = _repack_smesh(mesh)
+    lid = lid_mesh isa StaticArraysMesh ? _repack_smesh(lid_mesh) : lid_mesh
+    return FloatingBody{typeof(sm), typeof(lid), typeof(dofs)}(sm, lid, dofs, body_name)
+end
+
+function FloatingBody(mesh::StaticArraysMesh, dofs::NamedTuple, body_name::String)
     return FloatingBody(mesh, nothing, dofs, body_name)
 end
 
 
-function FloatingBody(mesh::Mesh, lid_mesh::Union{Mesh, Nothing}, rigid_dof_list::AbstractVector, rotation_center::AbstractVector, body_name::String)
+function FloatingBody(mesh, lid_mesh, rigid_dof_list::AbstractVector, rotation_center::AbstractVector, body_name::String)
     
     # if not already a vector of strings, make it 
     rigid_dof_list = string.(rigid_dof_list)    
@@ -36,14 +46,15 @@ function FloatingBody(mesh::Mesh, lid_mesh::Union{Mesh, Nothing}, rigid_dof_list
     return FloatingBody(mesh, lid_mesh, dofs, body_name)
 end
 
-function FloatingBody(mesh::Mesh, rigid_dof_list::AbstractVector, rotation_center::AbstractVector, body_name::String)
+function FloatingBody(mesh, rigid_dof_list::AbstractVector, rotation_center::AbstractVector, body_name::String)
     return FloatingBody(mesh, nothing, rigid_dof_list, rotation_center, body_name)
 end
 
 
 # This is only used for forward speed problems, and rigid_dof_name must be a rigid body dof
-function evaluate_gradient_of_motion(mesh::Mesh, rigid_dof_name::String)
-    @assert rigid_dof_name in ("Surge","Sway","Heave","Roll","Pitch","Yaw") "forward speed problems are only developed for rigid body dofs"
+function evaluate_gradient_of_motion(mesh, rigid_dof_name::String)
+    rigid_dof_name in ("Surge", "Sway", "Heave", "Roll", "Pitch", "Yaw") ||
+        throw(ArgumentError("forward speed problems are only developed for rigid body dofs"))
     num_panels = mesh.nfaces
     ddofdx = zeros(num_panels, 3)
     if rigid_dof_name=="Pitch"
@@ -60,15 +71,16 @@ end
 #     return FloatingBody(mesh, string.(rigid_dof_list), rotation_center, body_name)
 # end
 
-function translational_dofs(mesh::Mesh, dof_name::String)
+function translational_dofs(mesh, dof_name::String)
     num_panels = mesh.nfaces
-    dof = zeros(num_panels, 3)
+    T = eltype(mesh.areas)
+    dof = zeros(T, num_panels, 3)
     if dof_name=="Surge"
-        dof[:,1] .= 1
+        dof[:,1] .= one(T)
     elseif dof_name=="Sway"
-        dof[:,2] .= 1
+        dof[:,2] .= one(T)
     elseif dof_name=="Heave"
-        dof[:,3] .= 1
+        dof[:,3] .= one(T)
     end
     return dof
 end
@@ -88,8 +100,25 @@ function rotational_dofs(mesh::Mesh, dof_name::String, rotation_center::Abstract
     return dof
 end
 
+function rotational_dofs(mesh::StaticArraysMesh, dof_name::String, rotation_center::AbstractVector)
+    T = eltype(mesh.areas)
+    axis_of_rot = dof_name=="Roll" ? SVector{3,T}(1, 0, 0) :
+                  dof_name=="Pitch" ? SVector{3,T}(0, 1, 0) :
+                  dof_name=="Yaw" ? SVector{3,T}(0, 0, 1) :
+                  throw(ArgumentError("unknown rotational dof $dof_name"))
+    rc = SVector{3,T}(T(rotation_center[1]), T(rotation_center[2]), T(rotation_center[3]))
+    dof = zeros(T, mesh.nfaces, 3)
+    @inbounds for i in 1:mesh.nfaces
+        v = cross(axis_of_rot, mesh.centers[i] - rc)
+        dof[i, 1] = v[1]
+        dof[i, 2] = v[2]
+        dof[i, 3] = v[3]
+    end
+    return dof
+end
+
 # If rotation center not specified, assume it is at origin.
-function FloatingBody(mesh::Mesh, lid_mesh::Union{Mesh, Nothing}, rigid_dof_list::AbstractVector, body_name::String)
+function FloatingBody(mesh, lid_mesh, rigid_dof_list::AbstractVector, body_name::String)
 
     rotation_center = [0.0,0.0,0.0]
     for dof in rigid_dof_list
@@ -100,7 +129,7 @@ function FloatingBody(mesh::Mesh, lid_mesh::Union{Mesh, Nothing}, rigid_dof_list
     return FloatingBody(mesh, lid_mesh, rigid_dof_list, rotation_center, body_name)
 end
 
-function FloatingBody(mesh::Mesh, rigid_dof_list::AbstractVector, body_name::String)
+function FloatingBody(mesh, rigid_dof_list::AbstractVector, body_name::String)
     return FloatingBody(mesh, nothing, rigid_dof_list, body_name)
 end
 
@@ -133,7 +162,7 @@ end
 
 
 #  Combining multiple FloatingBody structs into one FloatingBody struct  
-function combine_floatingbodies(floatingbodylist::Vector{FloatingBody},new_body_name::String)
+function combine_floatingbodies(floatingbodylist::AbstractVector{<:FloatingBody},new_body_name::String)
 
     mesh_list = [floatingbody.mesh for floatingbody in floatingbodylist]
     dof_list = [floatingbody.dofs for floatingbody in floatingbodylist]  
@@ -165,29 +194,33 @@ function combine_floatingbodies(floatingbodylist::Vector{FloatingBody},new_body_
         for dof_name in keys(dofs)
             new_dof_key = Symbol(join([body_name,dof_name],"__"))
             dof_mat = dofs[dof_name]
-            new_dof_mat = zeros(tot_num_faces,3)
-            new_dof_mat[nbf+1:nbf+length(dof_mat[:,1]),:] = dof_mat  
+            n_after = tot_num_faces - nbf - size(dof_mat, 1)
+            new_dof_mat = vcat(zeros(nbf, 3), dof_mat, zeros(n_after, 3))
             push!(new_dof_keys,new_dof_key)
             push!(new_dof_mats,new_dof_mat)        
         end
     end
     new_dofs = NamedTuple{tuple(new_dof_keys...)}(tuple(new_dof_mats...))
 
-    return FloatingBody(new_mesh,new_dofs,new_body_name)
+    lids = [fb.lid_mesh for fb in floatingbodylist]
+    present_lids = Mesh[m for m in lids if !isnothing(m)]
+    new_lid = isempty(present_lids) ? nothing : combine_meshes(present_lids)
+
+    return FloatingBody(new_mesh, new_lid, new_dofs, new_body_name)
 end
 
-function combine_floatingbodies(floatingbodylist::Vector{FloatingBody})
+function combine_floatingbodies(floatingbodylist::AbstractVector{<:FloatingBody})
     # New FloatingBody name
     body_name_list_temp = [replace(floatingbody.body_name, " " => "_") for floatingbody in floatingbodylist]
     body_name_list = make_body_name_list_unique(body_name_list_temp)
-    return combine_floatingbodies(floatingbodylist::Vector{FloatingBody},join(body_name_list,"+"))
+    return combine_floatingbodies(floatingbodylist, join(body_name_list,"+"))
 end
 
 function +(fb1::FloatingBody, fb2::FloatingBody)
     return combine_floatingbodies([fb1, fb2])
 end
 
-function +(fb1::FloatingBody, fb_vec::Vector{FloatingBody})
+function +(fb1::FloatingBody, fb_vec::AbstractVector{<:FloatingBody})
     return combine_floatingbodies(vcat(fb1, fb_vec))
 end
 

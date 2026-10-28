@@ -9,48 +9,51 @@ using LinearAlgebra: cross, dot, norm
 ############
 import Base: +
 
-struct Mesh
-    vertices::AbstractMatrix
-    faces::AbstractMatrix
-    centers::AbstractMatrix
-    normals::AbstractMatrix
-    areas::AbstractVector
-    radii::AbstractVector
-    nvertices::Number
-    nfaces::Number
+struct Mesh{T, VT<:AbstractMatrix, FT<:AbstractMatrix, CT<:AbstractMatrix, NT<:AbstractMatrix, AT<:AbstractVector, RT<:AbstractVector}
+    vertices::VT
+    faces::FT
+    centers::CT
+    normals::NT
+    areas::AT
+    radii::RT
+    nvertices::Int
+    nfaces::Int
     function Mesh(vertices::AbstractMatrix, faces::AbstractMatrix,
                   centers::AbstractMatrix, normals::AbstractMatrix, areas::AbstractVector,
-                  radii::AbstractVector,nvertices::Number,
-                  nfaces::Number
-                  )
-        # TODO: centers, areas, and radii(?) could be calculated from list of vertices and faces
-        nvertices = size(vertices)[1]
-        @assert (size(vertices) == (nvertices, 3)) "each vertex needs 3 coordinates"
-        nfaces = size(faces)[1]
-        @assert (size(faces) == (nfaces, 4)) "only quadrilateral panels are allowed"
-        @assert (size(centers) == (nfaces, 3)) "centers must be [nfaces x 3]"
-        @assert (size(centers) == (nfaces, 3)) "centers must be [nfaces x 3]"
-        @assert (length(areas) == nfaces) "areas vector must have length nfaces"
-        @assert (length(radii) == nfaces) "radii vector must have length nfaces"
-        return new(vertices, faces, centers, normals, areas, radii, nvertices, nfaces)
+                  radii::AbstractVector, nvertices, nfaces)
+        T = eltype(vertices)
+        nv = Int(size(vertices, 1))
+        size(vertices) == (nv, 3) ||
+            throw(DimensionMismatch("each vertex needs 3 coordinates"))
+        nf = Int(size(faces, 1))
+        size(faces) == (nf, 4) ||
+            throw(DimensionMismatch("only quadrilateral panels are allowed"))
+        size(centers) == (nf, 3) ||
+            throw(DimensionMismatch("centers must be [nfaces x 3]"))
+        length(areas) == nf ||
+            throw(DimensionMismatch("areas vector must have length nfaces"))
+        length(radii) == nf ||
+            throw(DimensionMismatch("radii vector must have length nfaces"))
+        return new{T, typeof(vertices), typeof(faces), typeof(centers), typeof(normals), typeof(areas), typeof(radii)}(
+            vertices, faces, centers, normals, areas, radii, nv, nf)
     end
 end
 
-struct StaticArraysMesh
-    vertices::Vector{SVector{3, Float64}}
-    faces::Vector{SVector{4, Int64}}
-    centers::Vector{SVector{3, Float64}}
-    normals::Vector{SVector{3, Float64}}
-    areas::Vector{Float64}
-    radii::Vector{Float64}
-    nvertices::Int64
-    nfaces::Int64
+struct StaticArraysMesh{T}
+    vertices::Vector{SVector{3, T}}
+    faces::Vector{SVector{4, Int}}
+    centers::Vector{SVector{3, T}}
+    normals::Vector{SVector{3, T}}
+    areas::Vector{T}
+    radii::Vector{T}
+    nvertices::Int
+    nfaces::Int
 end
 
 
 
 #  Combining multiple Mesh structs into one Mesh struct  
-function combine_meshes(meshlist::Vector{Mesh})
+function combine_meshes(meshlist::Vector{<:Mesh})
 
     # Make lists
     vetrices_list = [mesh.vertices for mesh in meshlist]
@@ -73,19 +76,9 @@ function combine_meshes(meshlist::Vector{Mesh})
     new_nvetrices = sum(nvetrices_list) 
     new_nfaces = sum(nfaces_list) 
 
-    # Recount faces
-    cum_nfaces_list = cumsum(nfaces_list)
-    new_faces = zeros(Int, new_nfaces,4)
-    for (nfaces_index,nfaces) in enumerate(nfaces_list)
-        if nfaces_index == 1
-            nbf = 0
-            nbv = 0
-        else
-            nbf = cum_nfaces_list[nfaces_index-1]
-            nbv = nvetrices_list[nfaces_index-1]
-        end
-        new_faces[nbf+1:nbf+nfaces,:] = faces_list[nfaces_index] .+ nbv
-    end
+    # Recount faces without setindex! (Zygote traces this when a lid is present).
+    vertex_offsets = [0; cumsum(nvetrices_list)[1:end-1]]
+    new_faces = reduce(vcat, [faces_list[i] .+ vertex_offsets[i] for i in eachindex(faces_list)])
 
     # Define combined Mesh struct
     return Mesh(new_vertices,
@@ -148,6 +141,64 @@ function StaticArraysMesh(mesh::PyObject)
     return mesh
 end
 
+# `Mesh` stores 0-based faces (Capytaine convention). StaticArraysMesh is 1-based.
+# Dual eltypes stay Dual (ForwardDiff through Capytaine meshers seeds Dual fields
+# in GeometryAD). Enzyme reverse uses `_mesh_to_smesh`, not the conversion loop.
+function _mesh_eltype(mesh::Mesh)
+    T = eltype(mesh.vertices)
+    return T <: AbstractFloat ? float(T) : T
+end
+
+@noinline function _mesh_to_smesh_impl(mesh::Mesh)
+    nv = Int(mesh.nvertices)
+    nf = Int(mesh.nfaces)
+    T = _mesh_eltype(mesh)
+    vertices = [SVector{3,T}(mesh.vertices[i, 1], mesh.vertices[i, 2], mesh.vertices[i, 3]) for i in 1:nv]
+    faces = [SVector{4,Int}(mesh.faces[i, 1] + 1, mesh.faces[i, 2] + 1, mesh.faces[i, 3] + 1, mesh.faces[i, 4] + 1) for i in 1:nf]
+    centers = [SVector{3,T}(mesh.centers[i, 1], mesh.centers[i, 2], mesh.centers[i, 3]) for i in 1:nf]
+    normals = [SVector{3,T}(mesh.normals[i, 1], mesh.normals[i, 2], mesh.normals[i, 3]) for i in 1:nf]
+    return StaticArraysMesh(vertices, faces, centers, normals,
+        T[mesh.areas[i] for i in 1:nf], T[mesh.radii[i] for i in 1:nf], nv, nf)
+end
+
+@noinline _mesh_to_smesh(mesh::Mesh) = _mesh_to_smesh_impl(mesh)
+
+StaticArraysMesh(mesh::Mesh) = _mesh_to_smesh(mesh)
+
+"""
+    smesh(mesh)
+
+Convert a dense `Mesh` to `StaticArraysMesh`. Same primal as
+`StaticArraysMesh(mesh)`; this is the call Enzyme reverse-mode intercepts.
+"""
+smesh(mesh::Mesh) = _mesh_to_smesh(mesh)
+smesh(mesh::StaticArraysMesh) = mesh
+
+# Enzyme reverse of `fd_mesh_rules!` mesher functions returns a Duplicated
+# `StaticArraysMesh` (opaque shadow). The assemble loops crash on that
+# ("illegal insertion": Float vs Pointer). Rebuilding the struct from its
+# fields is the same construction as `smesh_from_radius`, which Enzyme
+# already reverses through `solve_problem`. StaticArrays themselves are fine.
+function _repack_smesh(s::StaticArraysMesh)
+    z = zero(eltype(s.areas))
+    return StaticArraysMesh(
+        [v .+ z for v in s.vertices],
+        s.faces,
+        [c .+ z for c in s.centers],
+        [n .+ z for n in s.normals],
+        [a + z for a in s.areas],
+        [ρ + z for ρ in s.radii],
+        s.nvertices,
+        s.nfaces,
+    )
+end
+_repack_smesh(mesh) = mesh
+
+# Concrete floating-point meshes can use the allocation-free StaticElement path.
+# Dual / Number meshes stay on LazyElement so geometry AD still sees `mesh.vertices`.
+_concrete_float_mesh(mesh::Mesh) =
+    eltype(mesh.vertices) <: AbstractFloat && eltype(mesh.centers) <: AbstractFloat
+
 
 ##############
 #  Elements  #
@@ -163,29 +214,50 @@ faces(nt::NamedTuple) = nt[:faces]
 
 
 # When using a Mesh, the element is stored as a reference to the Mesh and a index
-struct LazyElement
-    mesh::Mesh
-    index::Integer
+struct LazyElement{M<:Mesh}
+    mesh::M
+    index::Int
 end
 
 function element(mesh::Mesh, J::Int)
     return LazyElement(mesh, J)
 end
 
-center(e::LazyElement) = e.mesh.centers[e.index, :] #, e.mesh.centers[e.index, 1], e.mesh.centers[e.index, 2]
-normal(e::LazyElement) = e.mesh.normals[e.index, :] #, e.mesh.normals[e.index, 1], e.mesh.normals[e.index, 2]
+function center(e::LazyElement)
+    c = e.mesh.centers
+    i = e.index
+    T = eltype(c)
+    return SVector{3,T}(c[i, 1], c[i, 2], c[i, 3])
+end
+function normal(e::LazyElement)
+    n = e.mesh.normals
+    i = e.index
+    T = eltype(n)
+    return SVector{3,T}(n[i, 1], n[i, 2], n[i, 3])
+end
 area(e::LazyElement) = e.mesh.areas[e.index]
 radius(e::LazyElement) = e.mesh.radii[e.index]
-vertices(e::LazyElement) = e.mesh.vertices[e.mesh.faces[e.index, :] .+ 1, :]
+function vertices(e::LazyElement)
+    v = e.mesh.vertices
+    f = e.mesh.faces
+    i = e.index
+    i1, i2, i3, i4 = f[i, 1] + 1, f[i, 2] + 1, f[i, 3] + 1, f[i, 4] + 1
+    T = eltype(v)
+    return SMatrix{4,3,T,12}(
+        v[i1, 1], v[i2, 1], v[i3, 1], v[i4, 1],
+        v[i1, 2], v[i2, 2], v[i3, 2], v[i4, 2],
+        v[i1, 3], v[i2, 3], v[i3, 3], v[i4, 3],
+    )
+end
 
 
 # When using a StaticArraysMesh, the element is stored as a set of static arrays (although LazyElement might also work)
-struct StaticElement
-    center::SVector{3, Float64}
-    vertices::SMatrix{4, 3, Float64, 12}
-    normal::SVector{3, Float64}
-    area::Float64
-    radius::Float64
+struct StaticElement{T}
+    center::SVector{3, T}
+    vertices::SMatrix{4, 3, T, 12}
+    normal::SVector{3, T}
+    area::T
+    radius::T
 end
 
 function element(mesh::StaticArraysMesh, J::Int)
@@ -214,26 +286,24 @@ struct ReflectedElement{T}
 end
 free_surface_symmetry(e) = ReflectedElement(e)
 
-center(e::ReflectedElement{T}) where T <: Union{NamedTuple, LazyElement} = (c = center(e.element); [c[1], c[2], -c[3]])
-normal(e::ReflectedElement{T}) where T <: Union{NamedTuple, LazyElement} = (n = normal(e.element); [n[1], n[2], -n[3]])
+center(e::ReflectedElement{T}) where T <: Union{NamedTuple, LazyElement} = (c = center(e.element); SVector(c[1], c[2], -c[3]))
+normal(e::ReflectedElement{T}) where T <: Union{NamedTuple, LazyElement} = (n = normal(e.element); SVector(n[1], n[2], -n[3]))
 area(e::ReflectedElement) = area(e.element)
 radius(e::ReflectedElement) = radius(e.element)
 function vertices(e::ReflectedElement{T} where T <: Union{NamedTuple, LazyElement})
     v = vertices(e.element)
-    ET = eltype(v)
-    return ET[
-        v[4, 1]  v[4, 2]  -v[4, 3];
-        v[3, 1]  v[3, 2]  -v[3, 3];
-        v[2, 1]  v[2, 2]  -v[2, 3];
-        v[1, 1]  v[1, 2]  -v[1, 3];
-        ]   # Inverting order such that order is still consistent with normal vector
+    return SMatrix{4,3}(
+        v[4, 1], v[3, 1], v[2, 1], v[1, 1],
+        v[4, 2], v[3, 2], v[2, 2], v[1, 2],
+        -v[4, 3], -v[3, 3], -v[2, 3], -v[1, 3],
+    )   # Inverting order such that order is still consistent with normal vector
 end
 
-center(e::ReflectedElement{StaticElement}) = (c = center(e.element); SVector(c[1], c[2], -c[3]))
-normal(e::ReflectedElement{StaticElement}) = (n = normal(e.element); SVector(n[1], n[2], -n[3]))
-area(e::ReflectedElement{StaticElement}) = area(e.element)
-radius(e::ReflectedElement{StaticElement}) = radius(e.element)
-function vertices(e::ReflectedElement{StaticElement})
+center(e::ReflectedElement{<:StaticElement}) = (c = center(e.element); SVector(c[1], c[2], -c[3]))
+normal(e::ReflectedElement{<:StaticElement}) = (n = normal(e.element); SVector(n[1], n[2], -n[3]))
+area(e::ReflectedElement{<:StaticElement}) = area(e.element)
+radius(e::ReflectedElement{<:StaticElement}) = radius(e.element)
+function vertices(e::ReflectedElement{<:StaticElement})
     v = vertices(e.element)
     return @SMatrix [
         v[4, 1] v[4, 2] -v[4, 3]
@@ -245,8 +315,9 @@ end
 
 ############################ Differentiable Mesh #####################################
 function axisymmetric_mesh(profile::Meshes.Rope, n_theta::Integer=72)
-    @assert n_theta >= 3 "n_theta must be at least 3"
-    @assert length(profile.vertices) >= 2 "profile must contain at least two points"
+    n_theta >= 3 || throw(ArgumentError("n_theta must be at least 3"))
+    length(profile.vertices) >= 2 ||
+        throw(ArgumentError("profile must contain at least two points"))
 
     # Points: Revolve each 2D profile point (r, z) into a 3D ring,
     #  treat zero radius points as special cases
@@ -258,7 +329,7 @@ function axisymmetric_mesh(profile::Meshes.Rope, n_theta::Integer=72)
     for p in profile.vertices
         r = Meshes.coords(p).x
         z = Meshes.coords(p).y
-        @assert r >= zero(r) "profile radii must be nonnegative"
+        r >= zero(r) || throw(ArgumentError("profile radii must be nonnegative"))
         push!(ring_starts, length(points) + 1)
         if iszero(r)
             push!(ring_sizes, 1)
@@ -284,7 +355,7 @@ function axisymmetric_mesh(profile::Meshes.Rope, n_theta::Integer=72)
         size_2 = ring_sizes[layer+1]
 
         if size_1 == 1 && size_2 == 1
-            error("adjacent points cannot both have radius 0")
+            throw(ArgumentError("adjacent profile points cannot both have radius 0"))
         elseif size_1 == 1
             ir0 = start_1
             for i in 0:(n_theta-1)

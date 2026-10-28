@@ -1,1 +1,4 @@
-./Manifest.toml
+# Resolve per Julia version (CI tests 1.10 and 1). paper/ and benchmark/
+# Manifests are kept for those environments.
+/Manifest.toml
+/test/Manifest.toml

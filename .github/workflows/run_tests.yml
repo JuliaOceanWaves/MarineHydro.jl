@@ -15,17 +15,33 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.10', '1']
+        group: [Core, Differentiation, GPU]
+    name: Julia ${{ matrix.version }} / ${{ matrix.group }}
     steps:
 
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Manifest.toml files in this repo are resolved on Julia 1.12, where
+    # OpenSSL_jll is a stdlib. Instantiating that lockfile on 1.10 fails with
+    # "Failed to find path for package OpenSSL_jll". Drop them before cache
+    # and buildpkg so each matrix version resolves independently.
+    - name: Drop committed Manifests
+      run: rm -f Manifest.toml test/Manifest.toml
+
     - name: Install Capytaine
       run: |
          python -m venv /home/runner/.capy-venv
          /home/runner/.capy-venv/bin/python -m pip install -r test/requirements.txt
+
     - name: Setup Julia
       uses: julia-actions/setup-julia@v2
+      with:
+        version: ${{ matrix.version }}
 
     - name: Setup cache for Julia packages
       uses: julia-actions/cache@v2
@@ -39,3 +55,4 @@ jobs:
       uses: julia-actions/julia-runtest@v1
       env:
         PYTHON: /home/runner/.capy-venv/bin/python
+        GROUP: ${{ matrix.group }}

@@ -1,16 +1,25 @@
-struct Rankine <: GreensFunction end
+"""
+    DelhommeauRankine()
+
+Previous Rankine panel integrals (Capytaine / Delhommeau near-field + far-field `A/r`).
+
+`Rankine()` is now the Birk vectorized kernel. Keep this type for Capytaine
+comparisons and for checking the two Rankine implementations against each other.
+"""
+struct DelhommeauRankine <: GreensFunction end
+wavenumber_independent(::DelhommeauRankine) = true
 
 _distance(x, ξ) = norm(x .- ξ)
 
 # All functions below depends on wavenumber but the variable is actually unused.
 # It is just part of the signature to have the same signature than the wave part of the Green function.
 
-function greens(::Rankine, element_1, element_2, wavenumber=nothing)
+function greens(::DelhommeauRankine, element_1, element_2, wavenumber=nothing)
     r = _distance(center(element_1), center(element_2))
     return 1 / r
 end
 
-function gradient_greens(::Rankine, element_1, element_2, wavenumber=nothing; with_respect_to_first_variable=false)
+function gradient_greens(::DelhommeauRankine, element_1, element_2, wavenumber=nothing; with_respect_to_first_variable=false)
     r = _distance(center(element_1), center(element_2))
     r̅ = center(element_2) - center(element_1)
     ∇ₓ = 1/r^3*r̅
@@ -21,7 +30,7 @@ function gradient_greens(::Rankine, element_1, element_2, wavenumber=nothing; wi
     end
 end
 
-function integral(::Rankine, element_1, element_2, wavenumber=nothing)
+function integral(::DelhommeauRankine, element_1, element_2, wavenumber=nothing)
     point = center(element_1)
     source_point = center(element_2)
     source_vertices = vertices(element_2)
@@ -44,12 +53,11 @@ function integral(::Rankine, element_1, element_2, wavenumber=nothing)
             segment_length = norm(current_to_next)
             if segment_length >= 1e-3 * source_radius
                 GY = dot(point - current_vertex, cross(source_normal, current_to_next / segment_length))
-                if abs(GZ) >= 1e-4 * source_radius
-                    ANT = 2 * GY * segment_length
-                    DNT = (RR[index_next_vertex] + RR[index_vertex])^2 - segment_length^2 +
-                            2 * abs(GZ) * (RR[index_next_vertex] + RR[index_vertex])
-                    integral -= 2*abs(GZ) * atan(ANT, DNT)
-                end
+                ANT = 2 * GY * segment_length
+                DNT = (RR[index_next_vertex] + RR[index_vertex])^2 - segment_length^2 +
+                    2 * _abs_ad(GZ) * (RR[index_next_vertex] + RR[index_vertex])
+                AT = _delhommeau_atan(ANT, DNT, GZ, source_radius)
+                integral -= 2 * _abs_ad(GZ) * AT
                 if abs(GY) > 1e-5
                     ANL = RR[index_next_vertex] + RR[index_vertex] + segment_length
                     DNL = RR[index_next_vertex] + RR[index_vertex] - segment_length
@@ -62,7 +70,7 @@ function integral(::Rankine, element_1, element_2, wavenumber=nothing)
     return integral
 end
 
-function both_integral_and_integral_gradient(::Rankine, element_1, element_2, wavenumber=nothing; with_respect_to_first_variable=false)
+function both_integral_and_integral_gradient(::DelhommeauRankine, element_1, element_2, wavenumber=nothing; with_respect_to_first_variable=false)
     point = center(element_1)
     source_point = center(element_2)
     source_vertices = vertices(element_2)
@@ -92,26 +100,26 @@ function both_integral_and_integral_gradient(::Rankine, element_1, element_2, wa
                 GY = dot(point - current_vertex, GYX)
                 ANT = 2 * GY * segment_length
                 DNT = (RR[index_next_vertex] + RR[index_vertex])^2 - segment_length^2 +
-                    2 * abs(GZ) * (RR[index_next_vertex] + RR[index_vertex])
+                    2 * _abs_ad(GZ) * (RR[index_next_vertex] + RR[index_vertex])
                 ANL = RR[index_next_vertex] + RR[index_vertex] + segment_length
                 DNL = RR[index_next_vertex] + RR[index_vertex] - segment_length
                 ALDEN = log(ANL / DNL)
-                if abs(GZ) >= 1e-4 * source_radius
-                    AT = atan(ANT, DNT)  #check difference
-                else
-                    AT = zero(ANT)
-                end
+                AT = _delhommeau_atan(ANT, DNT, GZ, source_radius)
                 #error bound error in the line below...
                 ANLX = DRX[index_next_vertex] + DRX[index_vertex]
                 ANTX = 2 * segment_length * GYX
-                DNTX = 2 * (RR[index_next_vertex] + RR[index_vertex] + abs(GZ)) * ANLX +
-                    2 * sign(GZ) * (RR[index_next_vertex] + RR[index_vertex]) * source_normal
+                DNTX = 2 * (RR[index_next_vertex] + RR[index_vertex] + _abs_ad(GZ)) * ANLX +
+                    2 * _sign_ad(GZ) * (RR[index_next_vertex] + RR[index_vertex]) * source_normal
 
-                integral += GY * ALDEN
+                # Same S as `integral(::DelhommeauRankine)`: solid-angle atan plus log term.
+                integral -= 2 * _abs_ad(GZ) * AT
+                if abs(GY) > 1e-5
+                    integral += GY * ALDEN
+                end
                 integral_gradient = integral_gradient .-
-                                        (ALDEN .* GYX .- 2 * sign(GZ) * AT .* source_normal .+
-                                        GY * (DNL - ANL) ./ (ANL .* DNL) .* ANLX .-
-                                        2 * abs(GZ) .* (ANTX .* DNT .- DNTX .* ANT) ./ (ANT .* ANT .+ DNT .* DNT))
+                    (ALDEN .* GYX .- 2 * _sign_ad(GZ) * AT .* source_normal .+
+                    GY * (DNL - ANL) ./ (ANL .* DNL) .* ANLX .-
+                    2 * _abs_ad(GZ) .* (ANTX .* DNT .- DNTX .* ANT) ./ (ANT .* ANT .+ DNT .* DNT))
             end
         end
     end
@@ -123,6 +131,6 @@ function both_integral_and_integral_gradient(::Rankine, element_1, element_2, wa
 end
 
 
-function integral_gradient(gf::Rankine, element_1, element_2, wavenumber=nothing; with_respect_to_first_variable=false)
+function integral_gradient(gf::DelhommeauRankine, element_1, element_2, wavenumber=nothing; with_respect_to_first_variable=false)
     both_integral_and_integral_gradient(gf, element_1, element_2, wavenumber; with_respect_to_first_variable)[2]
 end

@@ -11,12 +11,13 @@ cpt_mesh_two_spheres = (cpt_mesh_sphere + cpt_mesh_sphere.translated_x(5.0)).cop
 @testset "Comparison with Capytaine for $(cptmesh.name)" for cptmesh in [cpt_mesh_sphere, cpt_mesh_two_spheres]
 
     mesh = Mesh(cptmesh)
+    smesh = StaticArraysMesh(mesh)
 
     # As long as we use Capytaine for the mesh, we might as well use it also for validation.
     # When we get rid of the dependency to Capytaine, this test might need to be restructured.
 
     @testset "Pure Rankine, direct=$direct" for direct in [true, false]
-        green_functions = (Rankine(),)
+        green_functions = (DelhommeauRankine(),)
         S, D = assemble_matrices(green_functions, mesh, 1.0, direct=direct)
         capy_S, capy_D = cpt.Delhommeau().evaluate(cptmesh, cptmesh, free_surface=Inf, water_depth=Inf, wavenumber=1.0, adjoint_double_layer=!direct)
         @test S ≈ capy_S  atol=1e-6
@@ -24,7 +25,7 @@ cpt_mesh_two_spheres = (cpt_mesh_sphere + cpt_mesh_sphere.translated_x(5.0)).cop
     end
 
     @testset "Rankine + reflected, direct=$direct" for direct in [true, false]
-        green_functions = (Rankine(), RankineReflected())
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflected())
         S, D = assemble_matrices(green_functions, mesh, 1.0, direct=direct)
         capy_S, capy_D = cpt.Delhommeau().evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=0.0, adjoint_double_layer=!direct)
         @test S ≈ capy_S  atol=1e-6
@@ -32,7 +33,7 @@ cpt_mesh_two_spheres = (cpt_mesh_sphere + cpt_mesh_sphere.translated_x(5.0)).cop
     end
 
     @testset "Rankine - reflected, direct=$direct" for direct in [true, false]
-        green_functions = (Rankine(), RankineReflectedNegative())
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflectedNegative())
         S, D = assemble_matrices(green_functions, mesh, 1.0, direct=direct)
         capy_S, capy_D = cpt.Delhommeau().evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=Inf, adjoint_double_layer=!direct)
         @test S ≈ capy_S  atol=1e-6
@@ -40,7 +41,7 @@ cpt_mesh_two_spheres = (cpt_mesh_sphere + cpt_mesh_sphere.translated_x(5.0)).cop
     end
 
     @testset "Full Green function with Guével-Delhommeau, direct=$direct, k=$k" for direct in [true, false], k in [1.0, 2.0]
-        green_functions = (Rankine(), RankineReflected(), ExactGuevelDelhommeau(),)
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflected(), ExactGuevelDelhommeau(),)
         S, D = assemble_matrices(green_functions, mesh, k, direct=direct)
         capy_S, capy_D = cpt.Delhommeau(tabulation_nr=0).evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=k, adjoint_double_layer=!direct)
         @test real.(S) ≈ real.(capy_S)  atol=1e-3
@@ -50,8 +51,62 @@ cpt_mesh_two_spheres = (cpt_mesh_sphere + cpt_mesh_sphere.translated_x(5.0)).cop
     end
 
     @testset "Full Green function with Wu, direct=$direct, k=$k" for direct in [true, false], k in [1.0, 2.0]
-        green_functions = (Rankine(), RankineReflected(), GFWu())
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflected(), GFWu())
         S, D = assemble_matrices(green_functions, mesh, k, direct=direct)
+        capy_S, capy_D = cpt.Delhommeau(tabulation_nr=0).evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=k, adjoint_double_layer=!direct)
+        @test real.(S) ≈ real.(capy_S)  atol=1e-2
+        @test imag.(S) ≈ imag.(capy_S)  atol=1e-6
+        @test real.(D) ≈ real.(capy_D)  atol=1e-2
+        @test imag.(D) ≈ imag.(capy_D)  atol=1e-6
+    end
+
+    @testset "StaticArraysMesh Pure Rankine, direct=$direct" for direct in [true, false]
+        green_functions = (DelhommeauRankine(),)
+        S, D = assemble_matrices(green_functions, smesh, 1.0, direct=direct)
+        capy_S, capy_D = cpt.Delhommeau().evaluate(cptmesh, cptmesh, free_surface=Inf, water_depth=Inf, wavenumber=1.0, adjoint_double_layer=!direct)
+        @test S ≈ capy_S  atol=1e-6
+        @test D ≈ capy_D  atol=1e-6
+    end
+
+    @testset "StaticArraysMesh Rankine + reflected, direct=$direct" for direct in [true, false]
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflected())
+        S, D = assemble_matrices(green_functions, smesh, 1.0, direct=direct)
+        capy_S, capy_D = cpt.Delhommeau().evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=0.0, adjoint_double_layer=!direct)
+        @test S ≈ capy_S  atol=1e-6
+        @test D ≈ capy_D  atol=1e-6
+    end
+
+    @testset "StaticArraysMesh Rankine - reflected, direct=$direct" for direct in [true, false]
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflectedNegative())
+        S, D = assemble_matrices(green_functions, smesh, 1.0, direct=direct)
+        capy_S, capy_D = cpt.Delhommeau().evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=Inf, adjoint_double_layer=!direct)
+        @test S ≈ capy_S  atol=1e-6
+        @test D ≈ capy_D  atol=1e-6
+    end
+
+    @testset "StaticArraysMesh Full Green function with Guével-Delhommeau, direct=$direct, k=$k" for direct in [true, false], k in [1.0, 2.0]
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflected(), ExactGuevelDelhommeau(),)
+        S, D = assemble_matrices(green_functions, smesh, k, direct=direct)
+        capy_S, capy_D = cpt.Delhommeau(tabulation_nr=0).evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=k, adjoint_double_layer=!direct)
+        @test real.(S) ≈ real.(capy_S)  atol=1e-3
+        @test imag.(S) ≈ imag.(capy_S)  atol=1e-6
+        @test real.(D) ≈ real.(capy_D)  atol=1e-4
+        @test imag.(D) ≈ imag.(capy_D)  atol=1e-6
+    end
+
+    @testset "StaticArraysMesh Full Green function with Wu, direct=$direct, k=$k" for direct in [true, false], k in [1.0, 2.0]
+        green_functions = (DelhommeauRankine(), DelhommeauRankineReflected(), GFWu())
+        S, D = assemble_matrices(green_functions, smesh, k, direct=direct)
+        capy_S, capy_D = cpt.Delhommeau(tabulation_nr=0).evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=k, adjoint_double_layer=!direct)
+        @test real.(S) ≈ real.(capy_S)  atol=1e-2
+        @test imag.(S) ≈ imag.(capy_S)  atol=1e-6
+        @test real.(D) ≈ real.(capy_D)  atol=1e-2
+        @test imag.(D) ≈ imag.(capy_D)  atol=1e-6
+    end
+
+    @testset "Vectorized Birk+Wu StaticArraysMesh vs Capytaine, direct=$direct, k=$k" for direct in [true, false], k in [1.0, 2.0]
+        green_functions = (Rankine(), RankineReflected(), GFWu())
+        S, D = assemble_matrices(green_functions, smesh, k, direct=direct)
         capy_S, capy_D = cpt.Delhommeau(tabulation_nr=0).evaluate(cptmesh, cptmesh, free_surface=0.0, water_depth=Inf, wavenumber=k, adjoint_double_layer=!direct)
         @test real.(S) ≈ real.(capy_S)  atol=1e-2
         @test imag.(S) ≈ imag.(capy_S)  atol=1e-6
@@ -111,6 +166,7 @@ end
     Froude_heave =  vec(results.Froude_Krylov_force.values)./ non_dimensional_const
     Diff_heave =   vec(results.diffraction_force.values) ./ non_dimensional_const
     mesh = Mesh(cptmesh)
+    smesh = StaticArraysMesh(mesh)
     dof = [0,0,1]
     julia_diff_omega = [DiffractionForce(mesh,w,dof) for w in omegas] ./ non_dimensional_const
     julia_fr_force = [FroudeKrylovForce(mesh,w,dof) for w in omegas] ./ non_dimensional_const
@@ -118,6 +174,20 @@ end
     @test imag.(julia_diff_omega) ≈ imag.(Diff_heave) rtol=1e-1
     @test real.(julia_fr_force) ≈ real.(Froude_heave) rtol=1e-1
     @test imag.(julia_fr_force) ≈ imag.(Froude_heave) atol=1e-1
+
+    function DiffractionForce_on(assemble_mesh, geom_mesh, ω, dof)
+        green_functions = (Rankine(), RankineReflected(), GFWu())
+        k = ω^2 / SETTINGS.g
+        S, D = assemble_matrices(green_functions, assemble_mesh, k)
+        bc = AiryBC(geom_mesh, ω)
+        potential, _ = solve(D, S, bc)
+        return diffraction_force(potential, geom_mesh, ω, dof)
+    end
+    julia_diff_smesh = [DiffractionForce_on(smesh, mesh, w, dof) for w in omegas] ./ non_dimensional_const
+    @test real.(julia_diff_smesh) ≈ real.(Diff_heave) rtol=1e-1
+    @test imag.(julia_diff_smesh) ≈ imag.(Diff_heave) rtol=1e-1
+    @test real.(julia_diff_smesh) ≈ real.(julia_diff_omega) rtol=1e-10 atol=1e-12
+    @test imag.(julia_diff_smesh) ≈ imag.(julia_diff_omega) rtol=1e-10 atol=1e-12
 
 end 
 

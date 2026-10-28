@@ -2,6 +2,25 @@ abstract type GreensFunction end
 
 const _Iterable = Union{Tuple, Vector}  # Not all iterables types, but the one we might use in the short term
 
+# Rankine-family kernels ignore wavenumber. Wave kernels (Wu, Delhommeau, …) do not.
+wavenumber_independent(::GreensFunction) = false
+
+partition_greens_functions(gfs) =
+    (filter(wavenumber_independent, gfs), filter(!wavenumber_independent, gfs))
+
+# Tuple split stays inferable (Base.filter on Tuple is not).
+partition_greens_functions(gfs::Tuple) = _partition_gfs(gfs, (), ())
+@inline _partition_gfs(::Tuple{}, static, wave) = (static, wave)
+@inline function _partition_gfs(gfs::Tuple, static, wave)
+    gf = gfs[1]
+    rest = Base.tail(gfs)
+    if wavenumber_independent(gf)
+        return _partition_gfs(rest, (static..., gf), wave)
+    else
+        return _partition_gfs(rest, static, (wave..., gf))
+    end
+end
+
 
 """
     greens(::GreensFunction, element_1, element_2, wavenumber=nothing)
@@ -15,6 +34,8 @@ Calculates the Green's function between two points.
 """
 function greens end
 
+# Tuple mapreduce stays type-stable; the generator form boxes on each panel pair.
+greens(gfs::Tuple, e1, e2, w) = mapreduce(gf -> greens(gf, e1, e2, w), +, gfs)
 greens(gfs::_Iterable, e1, e2, w) = sum(greens(gf, e1, e2, w) for gf in gfs)
 
 
@@ -31,6 +52,8 @@ Calculates the gradient of the Rankine Green's function between two points.
 """
 function gradient_greens end
 
+gradient_greens(gfs::Tuple, e1, e2, w; with_respect_to_first_variable=false) =
+    mapreduce(gf -> gradient_greens(gf, e1, e2, w; with_respect_to_first_variable), +, gfs)
 gradient_greens(gfs::_Iterable, e1, e2, w; with_respect_to_first_variable=false) = sum(gradient_greens(gf, e1, e2, w; with_respect_to_first_variable) for gf in gfs)
 
 
@@ -46,6 +69,7 @@ Calculates the integral of Green's function over a panel.
 """
 function integral end
 
+integral(gfs::Tuple, e1, e2, w) = mapreduce(gf -> integral(gf, e1, e2, w), +, gfs)
 integral(gfs::_Iterable, e1, e2, w) = sum(integral(gf, e1, e2, w) for gf in gfs)
 
 
@@ -62,6 +86,8 @@ Calculates the integral of the gradient of Green's function over a panel.
 """
 function integral_gradient end
 
+integral_gradient(gfs::Tuple, e1, e2, w; with_respect_to_first_variable=false) =
+    mapreduce(gf -> integral_gradient(gf, e1, e2, w; with_respect_to_first_variable), +, gfs)
 integral_gradient(gfs::_Iterable, e1, e2, w; with_respect_to_first_variable=false) = sum(integral_gradient(gf, e1, e2, w; with_respect_to_first_variable) for gf in gfs)
 
 
@@ -80,7 +106,10 @@ function both_integral_and_integral_gradient(gf, element_1, element_2, wavenumbe
             integral_gradient(gf, element_1, element_2, wavenumber; with_respect_to_first_variable=with_respect_to_first_variable))
 end
 
-both_integral_and_integral_gradient(gfs::_Iterable, e1, e2, w; with_respect_to_first_variable=false) = reduce(.+, both_integral_and_integral_gradient(gf, e1, e2, w; with_respect_to_first_variable) for gf in gfs)
+both_integral_and_integral_gradient(gfs::Tuple, e1, e2, w; with_respect_to_first_variable=false) =
+    mapreduce(gf -> both_integral_and_integral_gradient(gf, e1, e2, w; with_respect_to_first_variable), (a, b) -> a .+ b, gfs)
+both_integral_and_integral_gradient(gfs::_Iterable, e1, e2, w; with_respect_to_first_variable=false) =
+    reduce(.+, both_integral_and_integral_gradient(gf, e1, e2, w; with_respect_to_first_variable) for gf in gfs)
 
 
 # Below some common tools used for several wave terms
