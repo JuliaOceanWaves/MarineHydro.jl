@@ -36,7 +36,7 @@ include("meshes.jl")
 export Mesh, StaticArraysMesh, smesh, element, combine_meshes, wavebot_mesh
 
 include("bodies.jl")
-export FloatingBody, combine_floatingbodies
+export FloatingBody, MultiFloatingBody, combine_floatingbodies, combine_fb_meshes
 
 include("formulations.jl")
 export BEMFormulation, DirectBEM, IndirectBEM
@@ -67,5 +67,14 @@ include("ad_rules.jl")
 include("ad_rules_geometry.jl")
 using .GeometryAD: fd_mesh_rules!, fd_mesh_function, make_sphere_mesher, sphere_mesh
 export fd_mesh_rules!, fd_mesh_function, make_sphere_mesher, sphere_mesh
+
+include("hydrostatics.jl")
+export get_immersed_mesh, get_immersed_part, get_volume, get_displaced_volume, get_mass, get_displaced_mass
+export get_surface_area, get_wet_surface_area, get_geometric_center, get_buoyancy_center
+export get_waterplane_area, get_waterplane_center, get_hydrostatic_stiffness, get_rigid_body_inertia
+export get_longitudinal_metacentric_radius, get_longitudinal_metacentric_height
+export get_length_overall, get_breadth_overall, get_depth, get_draft, get_draught
+export get_length_overall_submerged, get_breadth_overall_submerged, FunctionalDofMode, PanelDofMode
+export get_length_at_waterline, get_breadth_at_waterline, get_hydrostatics
 
 end

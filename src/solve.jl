@@ -20,10 +20,19 @@ end
 
 # Lid type is a parameter (`Nothing` vs mesh). Dispatch, do not `isnothing`.
 _mesh_including_lid(problem) = _body_mesh_lid(problem.floatingbody)
-_body_mesh_lid(fb::FloatingBody{<:Any, Nothing}) = (fb.mesh, trues(fb.mesh.nfaces))
-function _body_mesh_lid(fb::FloatingBody)
+
+_body_mesh_lid(fb::FloatingBody{M,Nothing}) where {M} =
+    (fb.mesh, trues(nfaces(fb.mesh)))
+
+function _body_mesh_lid(fb::FloatingBody{<:Mesh,<:Mesh})
     mesh = fb.mesh + fb.lid_mesh
-    hull_mask = eachrow(mesh.faces) .∈ Ref(eachrow(fb.mesh.faces))
+    hull_mask = vcat(trues(nfaces(fb.mesh)), falses(nfaces(fb.lid_mesh)))
+    return mesh, hull_mask
+end
+
+function _body_mesh_lid(fb::FloatingBody{<:Meshes.Mesh,<:Meshes.Mesh})
+    mesh = Meshes.merge(fb.mesh, fb.lid_mesh)
+    hull_mask = vcat(trues(nfaces(fb.mesh)), falses(nfaces(fb.lid_mesh)))
     return mesh, hull_mask
 end
 
@@ -33,7 +42,7 @@ end
 _assembly_mesh(mesh) = mesh
 
 function _maybe_forward_speed_pressure(problem, wavenumber, mesh, hull_mask, sources,
-        pressure_on_hull, formulation)
+    pressure_on_hull, formulation)
     iszero(problem.forward_speed) && return pressure_on_hull
     is_direct(formulation) && throw(ArgumentError(
         "nonzero forward speed is not supported with the direct method; use IndirectBEM (direct = false)"))
@@ -65,7 +74,7 @@ function solve(problem::LinearPotentialFlowProblem, formulation::BEMFormulation=
 end
 
 function solve_problem(problem::LinearPotentialFlowProblem;
-        formulation=nothing, direct::Bool=true, gf::String="Wu", greens_functions=nothing)
+    formulation=nothing, direct::Bool=true, gf::String="Wu", greens_functions=nothing)
     return solve(problem, bem_formulation(; formulation, direct, gf, greens_functions))
 end
 
@@ -78,6 +87,6 @@ function solve(problems::AbstractVector{P}, formulation::BEMFormulation=DirectBE
 end
 
 function solve_all_problems(problems::AbstractVector{<:LinearPotentialFlowProblem};
-        formulation=nothing, direct::Bool=true, gf::String="Wu", greens_functions=nothing)
+    formulation=nothing, direct::Bool=true, gf::String="Wu", greens_functions=nothing)
     return solve(problems, bem_formulation(; formulation, direct, gf, greens_functions))
 end

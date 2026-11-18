@@ -88,7 +88,7 @@ function airy_waves_velocity(points, omega, beta=0, water_depth=Inf)
     cih = exp.(k .* z)
     sih = exp.(k .* z)
 
-    v = SETTINGS.g * k / omega .* exp.(1im * k .* wbar) .* 
+    v = SETTINGS.g * k / omega .* exp.(1im * k .* wbar) .*
         hcat(cos(beta) .* cih, sin(beta) .* cih, -1im .* sih)
     return v
 end
@@ -177,6 +177,15 @@ function _integrate_dof_pressure(mesh::StaticArraysMesh, dof_mat, pressure)
     return s
 end
 
+function _integrate_dof_pressure(mesh::Meshes.Mesh, dof_mat, pressure)
+    elems = MeshesElement.(collect(Meshes.elements(mesh)))
+
+    nd = _normal_displacement(mesh, dof_mat)
+    areas = [area(e) for e in elems]
+
+    return sum(pressure .* (-nd) .* areas)
+end
+
 ################################ Radiation methods #########################################
 
 
@@ -190,7 +199,7 @@ function radiation_bc(problem::RadiationProblem)
     mesh = problem.floatingbody.mesh
     dof_mat = problem.floatingbody.dofs[problem.radiating_dof]
     displacement_on_face = _normal_displacement(mesh, dof_mat)
-    bc =  -1im .* problem.encountered_omega .* displacement_on_face
+    bc = -1im .* problem.encountered_omega .* displacement_on_face
     if problem.forward_speed!=0
         ddofdx = evaluate_gradient_of_motion(mesh, string(problem.radiating_dof))
         bc = bc .+ problem.forward_speed .* _normal_displacement(mesh, ddofdx)
@@ -207,6 +216,20 @@ function _normal_displacement(mesh::StaticArraysMesh, dof_mat)
         n = mesh.normals[i]
         out[i] = n[1] * dof_mat[i, 1] + n[2] * dof_mat[i, 2] + n[3] * dof_mat[i, 3]
     end
+    return out
+end
+
+function _normal_displacement(mesh::Meshes.Mesh, dof_mat)
+    out = zeros(eltype(dof_mat), Meshes.nelements(mesh))
+
+    for (i, elem) in enumerate(Meshes.elements(mesh))
+        pts = _coord.(Meshes.vertices(elem))
+        n = _tri_area_vector(pts[1], pts[2], pts[3])
+        n ./= norm(n)
+
+        out[i] = dot(n, dof_mat[i, :])
+    end
+
     return out
 end
 
@@ -256,6 +279,15 @@ function _airy_bc(mesh::Mesh, problem::DiffractionProblem)
     return -sum(airy_waves_velocity(mesh.centers, problem) .* mesh.normals, dims=2)
 end
 
+function _airy_bc(mesh::Meshes.Mesh, problem::DiffractionProblem)
+    elems = MeshesElement.(collect(Meshes.elements(mesh)))
+
+    centers = reduce(vcat, permutedims.(collect.(center.(elems))))
+    normals = reduce(vcat, permutedims.(collect.(normal.(elems))))
+
+    return -sum(airy_waves_velocity(centers, problem) .* normals, dims=2)
+end
+
 function _airy_phi(p::SVector{3}, problem::DiffractionProblem)
     k = problem.wavenumber
     enc_beta = problem.encountered_beta
@@ -274,11 +306,13 @@ end
 
 function _airy_bc(mesh::StaticArraysMesh, problem::DiffractionProblem)
     # Do not use `dot` — it conjugates Complex velocities and flips the force.
-    return [begin
-        v = _airy_vel(mesh.centers[i], problem)
-        n = mesh.normals[i]
-        -(v[1] * n[1] + v[2] * n[2] + v[3] * n[3])
-    end for i in eachindex(mesh.centers)]
+    return [
+        begin
+            v = _airy_vel(mesh.centers[i], problem)
+            n = mesh.normals[i]
+            -(v[1] * n[1] + v[2] * n[2] + v[3] * n[3])
+        end for i in eachindex(mesh.centers)
+    ]
 end
 
 function compute_bc(problem::DiffractionProblem)
@@ -300,6 +334,19 @@ end
 _airy_pressure(mesh::Mesh, problem::DiffractionProblem) = airy_waves_pressure(mesh.centers, problem)
 function _airy_pressure(mesh::StaticArraysMesh, problem::DiffractionProblem)
     return [1im * problem.omega * problem.rho * _airy_phi(p, problem) for p in mesh.centers]
+end
+
+function _airy_pressure(mesh::Meshes.Mesh, problem::DiffractionProblem)
+    elems = MeshesElement.(collect(Meshes.elements(mesh)))
+    nf = length(elems)
+
+    centers = zeros(Float64, nf, 3)
+
+    for i in 1:nf
+        centers[i, :] .= center(elems[i])
+    end
+
+    return airy_waves_pressure(centers, problem)
 end
 
 # Deprecated CamelCase-era names; prefer the snake_case functions.
