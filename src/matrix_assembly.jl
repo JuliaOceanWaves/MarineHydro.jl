@@ -2,11 +2,27 @@
 # it into the StaticArraysMesh CPU kernels: those mutate and are not Zygote-safe.
 # Public `assemble_matrices` dispatches on mesh / array / Green's-function types.
 
-function assemble_matrices_comprehension(green_functions, mesh, wavenumber; direct=true, all_normals=nothing, include_identity=true)
-    
+function _meshes_element_center(elem)
+    pts = _coord.(Meshes.vertices(elem))
+    return sum(pts) / length(pts)
+end
+
+function _meshes_element_normal(elem)
+    pts = _coord.(Meshes.vertices(elem))
+
+    n = zero(pts[1])
+    for i in 2:(length(pts)-1)
+        n .+= _tri_area_vector(pts[1], pts[i], pts[i+1])
+    end
+
+    return n ./ norm(n)
+end
+
+function assemble_matrices_comprehension(green_functions, mesh::Mesh, wavenumber; direct=true, all_normals=nothing, include_identity=true)
+
     free_surface = 0.0
 
-    if eltype(mesh.vertices)<: ForwardDiff.Dual
+    if eltype(mesh.vertices) <: ForwardDiff.Dual
         T = eltype(mesh.vertices)
     else
         T = eltype(wavenumber)
@@ -14,22 +30,80 @@ function assemble_matrices_comprehension(green_functions, mesh, wavenumber; dire
 
     S = @inbounds [-1/2τ̅ * Complex{T}(integral(green_functions, element(mesh, i), element(mesh, j), wavenumber)) for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
 
-    D = @inbounds [begin
+    D = @inbounds [
+        begin
             element_i = element(mesh, i)
             element_j = element(mesh, j)
 
             norm_vec = direct ? normal(element_j) : normal(element_i)
-        
-            n = isnothing(all_normals) ? norm_vec : all_normals                      
+
+            n = isnothing(all_normals) ? norm_vec : all_normals
 
             c = i == j ? Complex{T}(1.0, 0.0) : Complex{T}(0.0, 0.0) # if diagonal
 
-            constant = abs(mesh.centers[i,3]-free_surface) < 1e-8 ? c : c/2 # if panel on surface
+            constant = abs(mesh.centers[i, 3]-free_surface) < 1e-8 ? c : c/2 # if panel on surface
 
             # (n' * norm_vec)=1 when n==panel normal vector. When all_normals is provided (for forward speed problems), this is not always the case.
             jump = include_identity ? (constant * (n' * norm_vec)) : zero(Complex{T})
-            jump - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct))
-        end for i in 1:mesh.nfaces, j in 1:mesh.nfaces]
+            jump - 1/2τ̅ * Complex{T}(n' * integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=(!direct)))
+        end for i in 1:mesh.nfaces, j in 1:mesh.nfaces
+    ]
+
+    return S, D
+end
+
+function assemble_matrices_comprehension(
+    green_functions,
+    mesh::Meshes.Mesh,
+    wavenumber;
+    direct=true,
+    all_normals=nothing,
+    include_identity=true
+)
+    free_surface = 0.0
+
+    elems = MeshesElement.(collect(Meshes.elements(mesh)))
+    nf = length(elems)
+
+    T = typeof(wavenumber)
+
+    S = @inbounds [
+        -1/2τ̅ * Complex{T}(
+            integral(green_functions, elems[i], elems[j], wavenumber)
+        )
+        for i in 1:nf, j in 1:nf
+    ]
+
+    D = @inbounds [
+        begin
+            element_i = elems[i]
+            element_j = elems[j]
+
+            norm_vec = direct ? normal(element_j) : normal(element_i)
+
+            n = isnothing(all_normals) ? norm_vec : all_normals
+
+            c = i == j ? Complex{T}(1.0, 0.0) : Complex{T}(0.0, 0.0)
+
+            constant = abs(center(element_i)[3] - free_surface) < 1e-8 ? c : c / 2
+
+            jump = include_identity ? constant * dot(n, norm_vec) : zero(Complex{T})
+
+            jump - 1/2τ̅ * Complex{T}(
+                dot(
+                    n,
+                    integral_gradient(
+                        green_functions,
+                        element_i,
+                        element_j,
+                        wavenumber;
+                        with_respect_to_first_variable=(!direct)
+                    )
+                )
+            )
+        end
+        for i in 1:nf, j in 1:nf
+    ]
 
     return S, D
 end
@@ -37,13 +111,13 @@ end
 function assemble_matrices_explicit_both(green_functions, mesh, wavenumber; direct=true)
     # Benchmark-only variant using `both_integral_and_integral_gradient`.
     # Not on the `assemble_matrices` dispatch path; not Zygote-safe.
-    S = Array{ComplexF64, 2}(undef, (mesh.nfaces, mesh.nfaces))
-    D = Array{ComplexF64, 2}(undef, (mesh.nfaces, mesh.nfaces))
+    S = Array{ComplexF64,2}(undef, (mesh.nfaces, mesh.nfaces))
+    D = Array{ComplexF64,2}(undef, (mesh.nfaces, mesh.nfaces))
     for i in 1:mesh.nfaces
         for j in 1:mesh.nfaces
             element_i = element(mesh, i)
             element_j = element(mesh, j)
-            Sij, Dij = both_integral_and_integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=!direct)
+            Sij, Dij = both_integral_and_integral_gradient(green_functions, element_i, element_j, wavenumber; with_respect_to_first_variable=(!direct))
             S[i, j] = -1/4π * Complex(Sij)
             n = direct ? normal(element_j) : normal(element_i)
             D[i, j] = -1/4π * Complex(n' * Dij)
@@ -75,7 +149,7 @@ function assemble_matrices_broadcasting(greens_functions, elements::AbstractVect
     fixed = _fixed_normal(all_normals, real(eltype(S_matrix)))
     _D_normal(e1, e2) = fixed === nothing ? (direct ? normal(e2) : normal(e1)) : fixed
     D_kernel(e1, e2) = _D_normal(e1, e2)' * integral_gradient(greens_functions, e1, e2,
-        wavenumber; with_respect_to_first_variable=!direct)
+        wavenumber; with_respect_to_first_variable=(!direct))
     D_matrix = (-1 / 4π) .* D_kernel.(elements, co_elements)
 
     T = eltype(D_matrix)
@@ -165,7 +239,7 @@ assemble_matrices(green_functions, mesh, wavenumber; kwargs...) =
     assemble_matrices_comprehension(green_functions, mesh, wavenumber; kwargs...)
 
 function assemble_matrices(green_functions, mesh::StaticArraysMesh, wavenumber;
-        direct=true, arrtype=Array, all_normals=nothing, include_identity=true)
+    direct=true, arrtype=Array, all_normals=nothing, include_identity=true)
     if arrtype !== Array
         isnothing(all_normals) || throw(ArgumentError(
             "all_normals is not supported on the GPU assembly path; use arrtype=Array or a dense Mesh"))
@@ -180,13 +254,13 @@ assemble_matrices(green_functions, elements::AbstractVector, wavenumber; kwargs.
 # CPU StaticArraysMesh. Concrete GF tuples skip `partition_greens_functions`.
 # Mutating loops here are Enzyme/ForwardDiff-safe; Zygote should use dense Mesh.
 # `all_normals` replaces the panel normal in the D/K dot product (forward speed).
-function _assemble_cpu(gfs::Tuple{Rankine, RankineReflected, GFWu}, mesh::StaticArraysMesh, wavenumber; direct=true, include_identity=true, all_normals=nothing)
+function _assemble_cpu(gfs::Tuple{Rankine,RankineReflected,GFWu}, mesh::StaticArraysMesh, wavenumber; direct=true, include_identity=true, all_normals=nothing)
     SD = assemble_birk_rankine((Rankine(), RankineReflected()), mesh; direct, include_identity, all_normals)
     Sw, Dw = assemble_wu_centers(mesh, wavenumber, Val(direct); include_identity=false, all_normals)
     return SD[1] .+ Sw, SD[2] .+ Dw
 end
 
-function _assemble_cpu(gfs::Tuple{Rankine, RankineReflected}, mesh::StaticArraysMesh, wavenumber; direct=true, include_identity=true, all_normals=nothing)
+function _assemble_cpu(gfs::Tuple{Rankine,RankineReflected}, mesh::StaticArraysMesh, wavenumber; direct=true, include_identity=true, all_normals=nothing)
     return assemble_birk_rankine(gfs, mesh; direct, include_identity, all_normals)
 end
 
@@ -223,7 +297,7 @@ end
 
 # Fixed replacement normal (forward speed uses x̂). `nothing` keeps panel normals.
 _fixed_normal(::Nothing, ::Type) = nothing
-_fixed_normal(v, ::Type{T}) where {T} = SVector{3, T}(v[1], v[2], v[3])
+_fixed_normal(v, ::Type{T}) where {T} = SVector{3,T}(v[1], v[2], v[3])
 
 @inline _panel_or_fixed(::Nothing, direct::Bool, n2, normals, i) =
     direct ? n2 : normals[i]

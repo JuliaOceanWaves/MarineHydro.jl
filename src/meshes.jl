@@ -9,7 +9,7 @@ using LinearAlgebra: cross, dot, norm
 ############
 import Base: +
 
-struct Mesh{T, VT<:AbstractMatrix, FT<:AbstractMatrix, CT<:AbstractMatrix, NT<:AbstractMatrix, AT<:AbstractVector, RT<:AbstractVector}
+struct Mesh{T,VT<:AbstractMatrix,FT<:AbstractMatrix,CT<:AbstractMatrix,NT<:AbstractMatrix,AT<:AbstractVector,RT<:AbstractVector}
     vertices::VT
     faces::FT
     centers::CT
@@ -19,8 +19,8 @@ struct Mesh{T, VT<:AbstractMatrix, FT<:AbstractMatrix, CT<:AbstractMatrix, NT<:A
     nvertices::Int
     nfaces::Int
     function Mesh(vertices::AbstractMatrix, faces::AbstractMatrix,
-                  centers::AbstractMatrix, normals::AbstractMatrix, areas::AbstractVector,
-                  radii::AbstractVector, nvertices, nfaces)
+        centers::AbstractMatrix, normals::AbstractMatrix, areas::AbstractVector,
+        radii::AbstractVector, nvertices, nfaces)
         T = eltype(vertices)
         nv = Int(size(vertices, 1))
         size(vertices) == (nv, 3) ||
@@ -34,16 +34,16 @@ struct Mesh{T, VT<:AbstractMatrix, FT<:AbstractMatrix, CT<:AbstractMatrix, NT<:A
             throw(DimensionMismatch("areas vector must have length nfaces"))
         length(radii) == nf ||
             throw(DimensionMismatch("radii vector must have length nfaces"))
-        return new{T, typeof(vertices), typeof(faces), typeof(centers), typeof(normals), typeof(areas), typeof(radii)}(
+        return new{T,typeof(vertices),typeof(faces),typeof(centers),typeof(normals),typeof(areas),typeof(radii)}(
             vertices, faces, centers, normals, areas, radii, nv, nf)
     end
 end
 
 struct StaticArraysMesh{T}
-    vertices::Vector{SVector{3, T}}
-    faces::Vector{SVector{4, Int}}
-    centers::Vector{SVector{3, T}}
-    normals::Vector{SVector{3, T}}
+    vertices::Vector{SVector{3,T}}
+    faces::Vector{SVector{4,Int}}
+    centers::Vector{SVector{3,T}}
+    normals::Vector{SVector{3,T}}
     areas::Vector{T}
     radii::Vector{T}
     nvertices::Int
@@ -73,11 +73,11 @@ function combine_meshes(meshlist::Vector{<:Mesh})
     new_radii = reduce(vcat, radii_list)
 
     # Sum 
-    new_nvetrices = sum(nvetrices_list) 
-    new_nfaces = sum(nfaces_list) 
+    new_nvetrices = sum(nvetrices_list)
+    new_nfaces = sum(nfaces_list)
 
     # Recount faces without setindex! (Zygote traces this when a lid is present).
-    vertex_offsets = [0; cumsum(nvetrices_list)[1:end-1]]
+    vertex_offsets = [0; cumsum(nvetrices_list)[1:(end-1)]]
     new_faces = reduce(vcat, [faces_list[i] .+ vertex_offsets[i] for i in eachindex(faces_list)])
 
     # Define combined Mesh struct
@@ -88,7 +88,7 @@ function combine_meshes(meshlist::Vector{<:Mesh})
         new_areas,
         new_radii,
         new_nvetrices,
-        new_nfaces)    
+        new_nfaces)
 end
 
 function +(mesh1::Mesh, mesh2::Mesh)
@@ -121,8 +121,8 @@ end
 
 function Mesh(mesh::PyObject)
     mesh = Mesh(
-        mesh.vertices, mesh.faces, 
-        mesh.faces_centers, mesh.faces_normals, mesh.faces_areas, mesh.faces_radiuses,mesh.nb_vertices,mesh.nb_faces
+        mesh.vertices, mesh.faces,
+        mesh.faces_centers, mesh.faces_normals, mesh.faces_areas, mesh.faces_radiuses, mesh.nb_vertices, mesh.nb_faces
     )
     return mesh
 end
@@ -253,9 +253,9 @@ end
 
 # When using a StaticArraysMesh, the element is stored as a set of static arrays (although LazyElement might also work)
 struct StaticElement{T}
-    center::SVector{3, T}
-    vertices::SMatrix{4, 3, T, 12}
-    normal::SVector{3, T}
+    center::SVector{3,T}
+    vertices::SMatrix{4,3,T,12}
+    normal::SVector{3,T}
     area::T
     radius::T
 end
@@ -286,11 +286,11 @@ struct ReflectedElement{T}
 end
 free_surface_symmetry(e) = ReflectedElement(e)
 
-center(e::ReflectedElement{T}) where T <: Union{NamedTuple, LazyElement} = (c = center(e.element); SVector(c[1], c[2], -c[3]))
-normal(e::ReflectedElement{T}) where T <: Union{NamedTuple, LazyElement} = (n = normal(e.element); SVector(n[1], n[2], -n[3]))
+center(e::ReflectedElement{T}) where T<:Union{NamedTuple,LazyElement} = (c=center(e.element); SVector(c[1], c[2], -c[3]))
+normal(e::ReflectedElement{T}) where T<:Union{NamedTuple,LazyElement} = (n=normal(e.element); SVector(n[1], n[2], -n[3]))
 area(e::ReflectedElement) = area(e.element)
 radius(e::ReflectedElement) = radius(e.element)
-function vertices(e::ReflectedElement{T} where T <: Union{NamedTuple, LazyElement})
+function vertices(e::ReflectedElement{T} where T<:Union{NamedTuple,LazyElement})
     v = vertices(e.element)
     return SMatrix{4,3}(
         v[4, 1], v[3, 1], v[2, 1], v[1, 1],
@@ -299,8 +299,8 @@ function vertices(e::ReflectedElement{T} where T <: Union{NamedTuple, LazyElemen
     )   # Inverting order such that order is still consistent with normal vector
 end
 
-center(e::ReflectedElement{<:StaticElement}) = (c = center(e.element); SVector(c[1], c[2], -c[3]))
-normal(e::ReflectedElement{<:StaticElement}) = (n = normal(e.element); SVector(n[1], n[2], -n[3]))
+center(e::ReflectedElement{<:StaticElement}) = (c=center(e.element); SVector(c[1], c[2], -c[3]))
+normal(e::ReflectedElement{<:StaticElement}) = (n=normal(e.element); SVector(n[1], n[2], -n[3]))
 area(e::ReflectedElement{<:StaticElement}) = area(e.element)
 radius(e::ReflectedElement{<:StaticElement}) = radius(e.element)
 function vertices(e::ReflectedElement{<:StaticElement})
@@ -312,6 +312,127 @@ function vertices(e::ReflectedElement{<:StaticElement})
         v[1, 1] v[1, 2] -v[1, 3];
     ]   # Inverting order such that order is still consistent with normal vector
 end
+
+#### Adapters for Meshes.Mesh:
+struct MeshesElement{E}
+    elem::E
+end
+
+element(mesh::Meshes.Mesh, J::Int) = MeshesElement(collect(Meshes.elements(mesh))[J])
+
+_coord_svec(p) = begin
+    c = Meshes.coords(p)
+    SVector(ustrip(c.x), ustrip(c.y), ustrip(c.z))
+end
+
+function _meshes_points(e::MeshesElement)
+    return [_coord_svec(p) for p in Meshes.vertices(e.elem)]
+end
+
+function vertices(e::MeshesElement)
+    pts = _meshes_points(e)
+
+    if length(pts) == 3
+        p1, p2, p3 = pts
+        p4 = p3  # repeat last vertex for triangle, Capytaine-style
+    elseif length(pts) == 4
+        p1, p2, p3, p4 = pts
+    else
+        error("Only triangle and quadrangle elements are supported.")
+    end
+
+    return @SMatrix [
+        p1[1] p1[2] p1[3]
+        p2[1] p2[2] p2[3]
+        p3[1] p3[2] p3[3]
+        p4[1] p4[2] p4[3]
+    ]
+end
+
+function area(e::MeshesElement)
+    pts = _meshes_points(e)
+
+    A = zero(eltype(pts[1]))
+
+    for i in 2:(length(pts)-1)
+        A += 0.5 * norm(cross(pts[i] - pts[1], pts[i+1] - pts[1]))
+    end
+
+    return A
+end
+
+function normal(e::MeshesElement)
+    pts = _meshes_points(e)
+
+    avec = zero(pts[1])
+
+    for i in 2:(length(pts)-1)
+        avec += 0.5 * cross(pts[i] - pts[1], pts[i+1] - pts[1])
+    end
+
+    return avec / norm(avec)
+end
+
+function center(e::MeshesElement)
+    pts = _meshes_points(e)
+
+    if length(pts) == 3
+        return (pts[1] + pts[2] + pts[3]) / 3
+    elseif length(pts) == 4
+        a, b, c, d = pts
+
+        A1 = 0.5 * norm(cross(b - a, c - a))
+        A2 = 0.5 * norm(cross(c - a, d - a))
+
+        c1 = (a + b + c) / 3
+        c2 = (a + c + d) / 3
+
+        return (A1 * c1 + A2 * c2) / (A1 + A2)
+    else
+        error("Only triangle and quadrangle elements are supported.")
+    end
+end
+
+function radius(e::MeshesElement)
+    pts = _meshes_points(e)
+    c = center(e)
+
+    return norm(pts[1] - c)
+end
+
+nfaces(mesh::Mesh) = mesh.nfaces
+nfaces(mesh::StaticArraysMesh) = mesh.nfaces
+nfaces(mesh::Meshes.Mesh) = Meshes.nelements(mesh)
+
+center_z(mesh::Mesh, i) = mesh.centers[i, 3]
+center_z(mesh::StaticArraysMesh, i) = mesh.centers[i][3]
+center_z(mesh::Meshes.Mesh, i) = center(element(mesh, i))[3]
+
+center(e::ReflectedElement{<:MeshesElement}) = begin
+    c = center(e.element)
+    SVector(c[1], c[2], -c[3])
+end
+
+normal(e::ReflectedElement{<:MeshesElement}) = begin
+    n = normal(e.element)
+    SVector(n[1], n[2], -n[3])
+end
+
+area(e::ReflectedElement{<:MeshesElement}) = area(e.element)
+
+radius(e::ReflectedElement{<:MeshesElement}) = radius(e.element)
+
+function vertices(e::ReflectedElement{<:MeshesElement})
+    v = vertices(e.element)
+
+    return @SMatrix [
+        v[4, 1] v[4, 2] -v[4, 3]
+        v[3, 1] v[3, 2] -v[3, 3]
+        v[2, 1] v[2, 2] -v[2, 3]
+        v[1, 1] v[1, 2] -v[1, 3]
+    ]
+end
+
 
 ############################ Differentiable Mesh #####################################
 function axisymmetric_mesh(profile::Meshes.Rope, n_theta::Integer=72)
@@ -428,7 +549,7 @@ function Mesh(mesh::Meshes.SimpleMesh)
     x_vals = [ustrip.(v.coords.x) for v in verts]
     y_vals = [ustrip.(v.coords.y) for v in verts]
     z_vals = [ustrip.(v.coords.z) for v in verts]
-    vertices_mat = hcat(x_vals,y_vals,z_vals)
+    vertices_mat = hcat(x_vals, y_vals, z_vals)
 
     # get faces
     connec = Meshes.topology(mesh).connec
@@ -438,7 +559,7 @@ function Mesh(mesh::Meshes.SimpleMesh)
         inds = Meshes.indices(connec[i])
         inds_vec = collect(inds)
         if length(inds)==3 # triangle element (repeat last vertex like cpt)
-            faces_mat[i, :] = vcat(inds_vec,inds_vec[3]) 
+            faces_mat[i, :] = vcat(inds_vec, inds_vec[3])
         else
             faces_mat[i, :] = inds_vec
         end
@@ -449,40 +570,40 @@ function Mesh(mesh::Meshes.SimpleMesh)
     areas_vec = ustrip.(Meshes.area.(mesh))
 
     # get nvertices
-    nvertices = length(vertices_mat[:,1])
+    nvertices = length(vertices_mat[:, 1])
 
     # get nfaces 
-    nfaces = length(faces_mat[:,1])
+    nfaces = length(faces_mat[:, 1])
 
     # get centers and normals (area centroid, not verex centroid)
-    center_mat = zeros(Number, nfaces,3)
-    normals_mat = zeros(Number, nfaces,3)
+    center_mat = zeros(Number, nfaces, 3)
+    normals_mat = zeros(Number, nfaces, 3)
     radii_vec = zeros(Number, nfaces)
     for i in 1:nfaces
 
         # compute center
-        faces_vec = faces_mat[i,:]
+        faces_vec = faces_mat[i, :]
         if faces_vec[end]==-1 # this is a triangle element
-            a = vertices_mat[faces_vec[1],:]
-            b = vertices_mat[faces_vec[2],:]
-            c = vertices_mat[faces_vec[3],:]
+            a = vertices_mat[faces_vec[1], :]
+            b = vertices_mat[faces_vec[2], :]
+            c = vertices_mat[faces_vec[3], :]
             center_vec = (a+b+c)/3
         else # this is a quadrilateral element
-            a = vertices_mat[faces_vec[1],:]
-            b = vertices_mat[faces_vec[2],:]
-            c = vertices_mat[faces_vec[3],:]
-            d = vertices_mat[faces_vec[4],:]
+            a = vertices_mat[faces_vec[1], :]
+            b = vertices_mat[faces_vec[2], :]
+            c = vertices_mat[faces_vec[3], :]
+            d = vertices_mat[faces_vec[4], :]
             area1 = 0.5 * norm(cross(b-a, c-a))
             area2 = 0.5 * norm(cross(c-a, d-a))
             c1 = (a+b+c)/3
             c2 = (a+c+d)/3
             center_vec = (c1*area1 + c2*area2) / (area1 + area2)
         end
-        center_mat[i,:] = center_vec
+        center_mat[i, :] = center_vec
 
         # compute normal
         normals_vec = cross(b-a, c-a)# not yet unit length
-        normals_mat[i,:] = normals_vec/norm(normals_vec) # normalize
+        normals_mat[i, :] = normals_vec/norm(normals_vec) # normalize
 
         # compute radii
         radii_vec[i] = norm(a-center_vec) # distance between center and first vertex
@@ -490,8 +611,8 @@ function Mesh(mesh::Meshes.SimpleMesh)
 
     # need to subtract 1 from faces_mat to start indexing at 0 like cpt
 
-    return Mesh(vertices_mat, faces_mat.-1, center_mat, normals_mat, areas_vec, radii_vec, nvertices, nfaces)
-end   
+    return Mesh(vertices_mat, faces_mat .- 1, center_mat, normals_mat, areas_vec, radii_vec, nvertices, nfaces)
+end
 
 
 function plot_mesh(mesh::Meshes.SimpleMesh, profile)
@@ -499,7 +620,7 @@ function plot_mesh(mesh::Meshes.SimpleMesh, profile)
     profile_r = [ustrip.(v.coords.x) for v in profile.vertices]
     profile_z = [ustrip.(v.coords.y) for v in profile.vertices]
 
-    fig = Makie.Figure(size=(1200, 600));
+    fig = Makie.Figure(size=(1200, 600))
     ax = Makie.Axis(
         fig[1, 1];
         aspect=Makie.DataAspect(),
@@ -507,9 +628,9 @@ function plot_mesh(mesh::Meshes.SimpleMesh, profile)
         xlabel="r [m]",
         ylabel="z [m]",
         limits=((0, nothing), (nothing, 1e-6)),
-    );
-    Makie.lines!(ax, profile_r, profile_z, color=:gold, linewidth=2);
-    Makie.scatter!(ax, profile_r, profile_z, color=:black, markersize=10);
+    )
+    Makie.lines!(ax, profile_r, profile_z, color=:gold, linewidth=2)
+    Makie.scatter!(ax, profile_r, profile_z, color=:black, markersize=10)
 
     ax = Makie.Axis3(
         fig[1, 2];
@@ -520,13 +641,13 @@ function plot_mesh(mesh::Meshes.SimpleMesh, profile)
         xlabel="x [m]",
         ylabel="y [m]",
         zlabel="z [m]",
-    );
-    Meshes.viz!(ax, mesh, color=:gold, showsegments=true, segmentcolor=:grey50, segmentsize=0.25);
+    )
+    Meshes.viz!(ax, mesh, color=:gold, showsegments=true, segmentcolor=:grey50, segmentsize=0.25)
 
     display(fig)
 end
 
-function wavebot_mesh(r1,r2,d1,d2,n_points = (5, 10, 5),n_theta = 72)
+function wavebot_mesh(r1, r2, d1, d2, n_points=(5, 10, 5), n_theta=72)
 
     # geometric design variables
     cylinder_height=d1
@@ -545,6 +666,6 @@ function wavebot_mesh(r1,r2,d1,d2,n_points = (5, 10, 5),n_theta = 72)
     # if show_plot
     #     plot_mesh(mesh, profile)
     # end
-        
+
     return MHmesh
 end
